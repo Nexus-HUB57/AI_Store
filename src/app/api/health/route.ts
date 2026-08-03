@@ -1,27 +1,30 @@
+import { db } from '@/lib/db'
 import { NextResponse } from 'next/server'
-import { PrismaClient } from '@prisma/client'
-
-const prisma = new PrismaClient()
+import { logger } from '@/lib/logger'
 
 export async function GET() {
   const start = Date.now()
   try {
     const [productCount, agentCount, txCount] = await Promise.all([
-      prisma.product.count(),
-      prisma.agent.count(),
-      prisma.transaction.count(),
+      db.product.count(),
+      db.agent.count(),
+      db.transaction.count(),
     ])
     const latency = Date.now() - start
 
+    logger.info('health_check', { latency_ms: latency, products: productCount, agents: agentCount })
+
     return NextResponse.json({
       status: 'ok',
-      version: '1.0.0-beta',
+      version: '1.1.0-beta',
       timestamp: new Date().toISOString(),
       latency_ms: latency,
+      uptime_s: process.uptime(),
       services: {
         database: 'connected',
         pulsar_sse: 'active',
         baitcoin_mainnet: 'simulated',
+        bait_sdk: 'v1-simulated',
       },
       counts: {
         products: productCount,
@@ -30,6 +33,7 @@ export async function GET() {
       },
     })
   } catch (error) {
+    logger.error('health_check_failed', { latency_ms: Date.now() - start, error: String(error) })
     return NextResponse.json(
       { status: 'error', error: 'Database connection failed', latency_ms: Date.now() - start },
       { status: 503 }

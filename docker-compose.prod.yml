@@ -19,6 +19,12 @@ services:
       retries: 5
     ports:
       - "5432:5432"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
 
   ai-store:
     build:
@@ -32,19 +38,32 @@ services:
       - "${APP_PORT:-3000}:3000"
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-aistore}:${POSTGRES_PASSWORD:-aistore_secret}@postgres:5432/${POSTGRES_DB:-ai_store}?schema=public&connect_timeout=10
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-aistore}:${POSTGRES_PASSWORD:-aistore_secret}@postgres:5432/${POSTGRES_DB:-ai_store}?schema=public&connect_timeout=10&pool_size=10
       - NEXT_PUBLIC_BASE_URL=${NEXT_PUBLIC_BASE_URL:-https://ai-store.nexus-os.io}
       - BAIT_PER_SAT=100
       - SIGNUP_BONUS_BAIT=100
       - REFERRAL_BONUS_BAIT=25
       - PULSAR_INTERVAL_MS=3000
+      - LOG_LEVEL=info
     restart: unless-stopped
+    stop_grace_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   pgdata:

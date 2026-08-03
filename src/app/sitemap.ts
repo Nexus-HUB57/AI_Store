@@ -1,12 +1,10 @@
 import { MetadataRoute } from 'next'
-import { PrismaClient } from '@prisma/client'
-
-const prisma = new PrismaClient()
+import { db } from '@/lib/db'
 
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://ai-store.nexus-os.io'
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const products = await prisma.product.findMany({
+  const products = await db.product.findMany({
     select: { slug: true, updatedAt: true },
     orderBy: { updatedAt: 'desc' },
   })

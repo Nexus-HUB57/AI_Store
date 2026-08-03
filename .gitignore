@@ -60,5 +60,4 @@ server.log
 /db/
 download/
 examples/
-tests/
-package-lock.json
+tests/*.sh

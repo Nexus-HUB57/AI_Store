@@ -1,4 +1,4 @@
-# ─── Build Stage ───
+# ─── Deps Stage ───
 FROM node:20-alpine AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
@@ -17,13 +17,17 @@ RUN npm run build
 
 # ─── Production Stage ───
 FROM node:20-alpine AS runner
-RUN apk add --no-cache wget postgresql-client
+RUN apk add --no-cache wget postgresql-client tini
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV LOG_LEVEL=info
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
+
+# Create data directory for SQLite
+RUN mkdir -p /app/db && chown nextjs:nodejs /app/db
 
 COPY --from=builder /app/public ./public
 
@@ -44,4 +48,10 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
+# Health check: /api/health every 30s, start after 5s, fail after 3 retries
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD wget -qO- http://localhost:3000/api/health || exit 1
+
+# Use tini as PID 1 for proper signal handling (graceful shutdown)
+ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["node", "server.js"]
