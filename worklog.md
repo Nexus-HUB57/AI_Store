@@ -51,3 +51,21 @@ Stage Summary:
 - Tests: 131/131 passing (schemas 46, wallet-sdk 27, cart-logic 13, rate-limit 13, csrf 9, logger 6, env 6)
 - Commit: c93b130 pushed to main
 - Key new files: src/lib/wallet-sdk.ts, src/lib/product-queries.ts, src/middleware-helpers/instrumented-handler.ts
+---
+---
+Task ID: 8
+Agent: main
+Task: Wallet SDK Cart Integration, /api/version, Repo Hygiene
+
+Work Log:
+- Replaced all Math.round(x/100) in cart-panel.tsx with satsToBAIT() from wallet-sdk
+- Created /api/version endpoint (version, commit, node, bait_sdk, protocol, build_time)
+- Created CONTRIBUTING.md (setup, scripts, architecture, conventions, PR flow)
+- Created .editorconfig (2-space indent, UTF-8, LF, trim trailing whitespace)
+- Verified build: 0 errors, 21 routes
+- Verified tests: 131/131 passing
+
+Stage Summary:
+- Commit: d880a47 pushed to main
+- Cart panel now uses centralized wallet-sdk for all BAIT conversions
+- Version endpoint enables deploy tracking across environments
