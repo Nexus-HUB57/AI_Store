@@ -16,3 +16,12 @@ indent_size = 2
 
 [*.prisma]
 indent_size = 2
+
+[*.ts,*.tsx]
+indent_size = 2
+
+[*.css]
+indent_size = 2
+
+[Makefile]
+indent_style = tab
