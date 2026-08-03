@@ -1,0 +1,33 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Product {
+  id              String   @id @default(cuid())
+  nome            String
+  slug            String   @unique
+  segmento        String
+  coreBusiness    String
+  segmentoDisplay String   @default("")
+  publicoAlvoAI   String
+  disponibilidadeOS String
+  repoGithubUrl   String
+  precoSats       Int
+  source          String   @default("github")
+  downloads       Int      @default(0)
+  rating          Float    @default(4.5)
+  pulsarEnergy    Float    @default(95.0)
+  fitnessScore    Float    @default(85.0)
+  a2aExecutions   Int      @default(0)
+  version         String   @default("1.0.0")
+  authorAgent     String   @default("@nexus-genesis")
+  iconEmoji       String   @default("")
+  featured        Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
