@@ -905,9 +905,14 @@ export default function Home() {
               {/* Upload */}
               <UploadAipkgDialog />
 
-              {/* Publish Portal */}
+              {/* Publish Portal — Desktop */}
               <Button variant="ghost" size="sm" className="h-9 text-xs text-zinc-400 hover:text-amber-400 gap-1.5 hidden sm:flex" onClick={() => window.location.href = '/publish'}>
                 <Sparkles className="w-3.5 h-3.5" />Publicar
+              </Button>
+
+              {/* Publish Portal — Mobile */}
+              <Button variant="ghost" size="icon" className="sm:hidden h-9 w-9 text-zinc-400 hover:text-amber-400" onClick={() => window.location.href = '/publish'}>
+                <Sparkles className="w-4 h-4" />
               </Button>
 
               {/* Auth / Dashboard */}

@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
 
     if (existing) {
       const caps = JSON.parse(existing.capabilities || '[]')
-      return NextResponse.json({
+      const res = NextResponse.json({
         agent: {
           id: existing.id,
           address: existing.address,
@@ -42,6 +42,11 @@ export async function POST(req: NextRequest) {
           isNew: false,
         },
       })
+      res.cookies.set('agent_id', existing.id, {
+        httpOnly: true, secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 30,
+      })
+      return res
     }
 
     // New agent — create with signup bonus
@@ -120,7 +125,7 @@ export async function POST(req: NextRequest) {
 
     const caps = JSON.parse(agent.capabilities || '[]')
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       agent: {
         id: agent.id,
         address: agent.address,
@@ -136,6 +141,11 @@ export async function POST(req: NextRequest) {
       referralBonusGiven,
       signupBonus: SIGNUP_BONUS,
     })
+    res.cookies.set('agent_id', agent.id, {
+      httpOnly: true, secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 30,
+    })
+    return res
   } catch (e) {
     console.error('Auth error:', e)
     return NextResponse.json({ error: 'Erro na autenticação' }, { status: 500 })

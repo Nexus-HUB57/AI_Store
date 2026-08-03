@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 
-// Routes that require authentication
 const PROTECTED_ROUTES = ['/dashboard', '/publish']
-
-// API routes that require authentication
 const PROTECTED_API = ['/api/agent/dashboard', '/api/referral/stats', '/api/referral/claim']
+
+// State-changing API routes that need CSRF protection (POST/PUT/DELETE)
+const CSRF_PROTECTED_METHODS = ['POST', 'PUT', 'DELETE', 'PATCH']
 
 function getRateLimitConfig(pathname: string) {
   if (pathname.startsWith('/api/auth')) return RATE_LIMITS.auth
@@ -27,9 +27,8 @@ export function middleware(req: NextRequest) {
 
   // ── Auth guard: Protected page routes ──
   if (PROTECTED_ROUTES.some((r) => pathname.startsWith(r))) {
-    const authHeader = req.headers.get('authorization')
     const agentId = req.cookies.get('agent_id')?.value
-    if (!authHeader && !agentId) {
+    if (!agentId) {
       const loginUrl = req.nextUrl.clone()
       loginUrl.pathname = '/'
       loginUrl.searchParams.set('auth', 'required')
@@ -39,14 +38,13 @@ export function middleware(req: NextRequest) {
 
   // ── Auth guard: Protected API routes ──
   if (PROTECTED_API.some((r) => pathname.startsWith(r))) {
-    const authHeader = req.headers.get('authorization')
     const agentId = req.cookies.get('agent_id')?.value
-    if (!authHeader && !agentId) {
+    if (!agentId) {
       return NextResponse.json({ error: 'Autenticação necessária' }, { status: 401 })
     }
   }
 
-  // ── Rate limiting: API routes only ──
+  // ── Rate limiting + security: API routes ──
   if (pathname.startsWith('/api/')) {
     const config = getRateLimitConfig(pathname)
     const clientId = getClientId(req)
@@ -71,6 +69,10 @@ export function middleware(req: NextRequest) {
     response.headers.set('X-RateLimit-Limit', String(config.limit))
     response.headers.set('X-RateLimit-Remaining', String(result.remaining))
     response.headers.set('X-RateLimit-Reset', String(result.resetAt))
+
+    // Add request ID for tracing
+    response.headers.set('X-Request-Id', crypto.randomUUID().slice(0, 8))
+
     return response
   }
 

@@ -61,7 +61,10 @@ export const useAuthStore = create<AuthStore>()(
         }
       },
 
-      logout: () => set({ agent: null, isAuthenticated: false, isNewUser: false }),
+      logout: () => {
+        set({ agent: null, isAuthenticated: false, isNewUser: false })
+        fetch('/api/auth/logout', { method: 'POST' }).catch(() => {})
+      },
 
       updateBalance: (delta: number) => {
         const current = get().agent
