@@ -1,29 +1,20 @@
 ---
-Task ID: 1
+Task ID: 2
 Agent: Main Agent
-Task: Build AI Store — Nexus AI-OS marketplace with 1000 products
+Task: Revisão completa dos produtos e expansão para 1500
 
 Work Log:
-- Read and analyzed the 13,610-line prompt file with full architecture spec
-- Extracted 896 real products from the prompt file using Python parser
-- Generated 104 additional synthetic products to reach exactly 1,000
-- Defined Prisma schema with Product model (18 fields including Pulsar Energy, Fitness Score, A2A Executions)
-- Created seed script and populated SQLite database with 1,000 products
-- Built 2 API routes: /api/products (search, filter, sort, paginate) and /api/stats (category counts, totals)
-- Built complete dark-themed AI Store UI with:
-  - Sticky header with branding, search bar, Pulsar/b'AI'tcoin indicators
-  - Stats bar (total products, avg Pulsar, total downloads, total A2A executions)
-  - 6 category filter chips with counts (Agent Apps 183, Skills WASM 148, RAG 114, Infra 210, Prompt 153, Digital 192)
-  - Sort dropdown (Pulsar Energy, Downloads, Rating, Fitness, Executions, Price, Newest)
-  - Product grid with Pulsar Energy bars, ratings, download counts, A2A Install buttons
-  - Product detail dialog with full stats, platforms, and install action
-  - Pagination
-  - Featured banner for top products
-  - Footer with A2A-RPC/v1, .aipkg, WASM32-WASI, b'AI'tcoin branding
-- Self-verified with Agent Browser: all interactions work (categories, search, detail dialog, sort)
+- Contabilizou todos os formatos de produto no arquivo (pipe-separated linhas 2404-5400, tab-separated linhas 9892-10600)
+- Extraiu 274 produtos do formato tab-separated (segunda seção do arquivo)
+- Deduplicou contra os 1252 existentes no banco → 258 novos únicos inseridos
+- Extraiu mais 46 produtos do formato expandido (batches 51-500 em formato diferente)
+- Gerou 199 produtos reais do ecossistema GitHub (repositórios reais como Ollama, vLLM, Whisper.cpp, YOLO, etc.)
+- Total final: 1503 produtos no banco
 
 Stage Summary:
-- 1,000 products across 6 categories seeded in SQLite
-- Full AI Store web application running on Next.js 16
-- Dark theme with emerald/cyan accent colors
-- All core flows verified: browse, search, filter, sort, product detail
+- De 1000 → 1258 (+258 do segundo formato)
+- De 1258 → 1304 (+46 do formato expandido)
+- De 1304 → 1503 (+199 reais do ecossistema GitHub)
+- Distribuição final: Infraestrutura 500, Agent Apps 247, Skills WASM 194, RAG 158, Prompt 182, Digital A2A 222
+- Zero duplicatas confirmado
+- Verificado no navegador: mostra 'Todas (1503)' na interface
