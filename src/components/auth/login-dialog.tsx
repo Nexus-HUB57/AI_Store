@@ -217,7 +217,7 @@ export function LoginDialog() {
               <Button
                 variant="outline"
                 className="flex-1 border-zinc-700 hover:bg-zinc-800 text-sm"
-                onClick={() => { setOpen(false); window.location.href = '/dashboard' }}
+                onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('open-dashboard')) }}
               >
                 <Shield className="w-4 h-4 mr-1.5" />
                 Dashboard
