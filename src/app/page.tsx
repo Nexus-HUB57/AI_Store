@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -27,8 +27,6 @@ import {
   Star,
   Activity,
   ArrowUpDown,
-  Grid3X3,
-  List,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
@@ -38,7 +36,17 @@ import {
   Package,
   Sparkles,
   Layers,
+  ShoppingCart,
+  Plus,
+  Minus,
+  Wifi,
+  WifiOff,
+  Radio,
 } from 'lucide-react'
+import { CartPanel } from '@/components/store/cart-panel'
+import { UploadAipkgDialog } from '@/components/store/upload-aipkg-dialog'
+import { usePulsarSSE } from '@/hooks/use-pulsar-sse'
+import { useCartStore } from '@/lib/cart-store'
 
 interface Product {
   id: string
@@ -86,39 +94,50 @@ const SEGMENT_COLORS: Record<string, string> = {
   IN_APP_PRODUCTS: 'bg-fuchsia-500/15 text-fuchsia-400 border-fuchsia-500/30',
 }
 
-const SEGMENT_BG: Record<string, string> = {
-  AGENT_APPS: 'from-emerald-500/10 to-emerald-900/5',
-  EXECUTABLE_SKILLS: 'from-amber-500/10 to-amber-900/5',
-  KNOWLEDGE_PACKS: 'from-cyan-500/10 to-cyan-900/5',
-  SYNTHETIC_INFRASTRUCTURE: 'from-rose-500/10 to-rose-900/5',
-  PROMPT_HARNESS: 'from-violet-500/10 to-violet-900/5',
-  IN_APP_PRODUCTS: 'from-fuchsia-500/10 to-fuchsia-900/5',
-}
-
 function formatNumber(n: number): string {
   if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'
   if (n >= 1000) return (n / 1000).toFixed(1) + 'K'
   return n.toString()
 }
 
-function PulsarBar({ value }: { value: number }) {
-  const color = value >= 90 ? 'bg-emerald-500' : value >= 70 ? 'bg-amber-500' : 'bg-rose-500'
+function PulsarBar({ value, productId, liveUpdates }: { value: number; productId: string; liveUpdates: Record<string, number> }) {
+  const liveValue = liveUpdates[productId] ?? value
+  const color = liveValue >= 90 ? 'bg-emerald-500' : liveValue >= 70 ? 'bg-amber-500' : 'bg-rose-500'
+  const isLive = productId in liveUpdates
   return (
     <div className="flex items-center gap-2">
       <div className="h-1.5 flex-1 rounded-full bg-white/10 overflow-hidden">
         <div
-          className={`h-full rounded-full transition-all duration-700 ${color}`}
-          style={{ width: `${value}%` }}
+          className={`h-full rounded-full transition-all duration-700 ${color} ${isLive ? 'shadow-sm' : ''}`}
+          style={{ width: `${liveValue}%` }}
         />
       </div>
-      <span className="text-xs font-mono text-muted-foreground w-10 text-right">
-        {value.toFixed(0)}%
+      <span className={`text-xs font-mono w-10 text-right ${isLive ? 'text-emerald-400' : 'text-muted-foreground'}`}>
+        {liveValue.toFixed(0)}%
+        {isLive && <span className="ml-0.5 inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
       </span>
     </div>
   )
 }
 
 function ProductCard({ product, onClick }: { product: Product; onClick: () => void }) {
+  const addItem = useCartStore((s) => s.addItem)
+  const items = useCartStore((s) => s.items)
+  const inCart = items.some((i) => i.id === product.id)
+
+  const handleAddToCart = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    addItem({
+      id: product.id,
+      nome: product.nome,
+      precoSats: product.precoSats,
+      iconEmoji: product.iconEmoji,
+      segmento: product.segmento,
+      version: product.version,
+      authorAgent: product.authorAgent,
+    })
+  }
+
   return (
     <Card
       className="group cursor-pointer border-white/10 bg-gradient-to-br from-white/[0.04] to-transparent hover:border-white/20 hover:from-white/[0.08] transition-all duration-300 overflow-hidden"
@@ -156,7 +175,7 @@ function ProductCard({ product, onClick }: { product: Product; onClick: () => vo
         </Badge>
 
         <div className="space-y-2">
-          <PulsarBar value={product.pulsarEnergy} />
+          <PulsarBar value={product.pulsarEnergy} productId={product.id} liveUpdates={{}} />
 
           <div className="flex items-center justify-between text-[11px] text-muted-foreground">
             <span className="flex items-center gap-1">
@@ -172,15 +191,30 @@ function ProductCard({ product, onClick }: { product: Product; onClick: () => vo
 
           <div className="flex items-center justify-between pt-1 border-t border-white/5">
             <span className="text-xs font-mono text-emerald-400">
-              {product.precoSats} sats
+              {product.precoSats.toLocaleString()} sats
             </span>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-6 text-xs px-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
-            >
-              A2A Install
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                className={`h-6 text-xs px-2 transition-all ${
+                  inCart
+                    ? 'text-cyan-400 bg-cyan-500/10'
+                    : 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/10'
+                }`}
+                onClick={handleAddToCart}
+              >
+                {inCart ? <ShoppingCart className="w-3 h-3 mr-0.5" /> : <Plus className="w-3 h-3 mr-0.5" />}
+                {inCart ? 'No Carrinho' : 'Carrinho'}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 text-xs px-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
+              >
+                A2A
+              </Button>
+            </div>
           </div>
         </div>
       </CardContent>
@@ -189,6 +223,10 @@ function ProductCard({ product, onClick }: { product: Product; onClick: () => vo
 }
 
 function ProductDetail({ product, open, onClose }: { product: Product | null; open: boolean; onClose: () => void }) {
+  const addItem = useCartStore((s) => s.addItem)
+  const items = useCartStore((s) => s.items)
+  const inCart = product ? items.some((i) => i.id === product.id) : false
+
   if (!product) return null
 
   return (
@@ -219,7 +257,7 @@ function ProductDetail({ product, open, onClose }: { product: Product | null; op
             <StatCard icon={<Download className="w-4 h-4 text-cyan-400" />} label="Downloads" value={formatNumber(product.downloads)} />
             <StatCard icon={<Star className="w-4 h-4 text-amber-300" />} label="Rating" value={`${product.rating}/5.0`} />
             <StatCard icon={<Cpu className="w-4 h-4 text-violet-400" />} label="Execuções A2A" value={formatNumber(product.a2aExecutions)} />
-            <StatCard icon={<Shield className="w-4 h-4 text-rose-400" />} label="Preço" value={`${product.precoSats} sats`} />
+            <StatCard icon={<Shield className="w-4 h-4 text-rose-400" />} label="Preço" value={`${product.precoSats.toLocaleString()} sats`} />
           </div>
 
           <div className="space-y-2">
@@ -237,8 +275,22 @@ function ProductDetail({ product, open, onClose }: { product: Product | null; op
           </div>
 
           <div className="flex gap-2 pt-2">
-            <Button className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white">
-              <Package className="w-4 h-4 mr-2" /> Instalar via A2A-RPC
+            <Button
+              className="flex-1 bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white"
+              onClick={() => {
+                addItem({
+                  id: product.id,
+                  nome: product.nome,
+                  precoSats: product.precoSats,
+                  iconEmoji: product.iconEmoji,
+                  segmento: product.segmento,
+                  version: product.version,
+                  authorAgent: product.authorAgent,
+                })
+              }}
+            >
+              <ShoppingCart className="w-4 h-4 mr-2" />
+              {inCart ? 'Já no Carrinho' : 'Adicionar ao Carrinho'}
             </Button>
             <Button variant="outline" className="border-zinc-700" asChild>
               <a href={product.repoGithubUrl} target="_blank" rel="noopener noreferrer">
@@ -276,7 +328,33 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [showFeatured, setShowFeatured] = useState(true)
+  const [liveUpdates, setLiveUpdates] = useState<Record<string, number>>({})
   const limit = 24
+
+  const { connected, updates } = usePulsarSSE()
+  const cartCount = useCartStore((s) => s.items.length)
+
+  // Process pulsar SSE updates
+  useEffect(() => {
+    if (updates.length === 0) return
+    const newMap: Record<string, number> = {}
+    for (const u of updates.slice(0, 10)) {
+      newMap[u.productId] = u.pulsarEnergy
+    }
+    setLiveUpdates((prev) => {
+      const merged = { ...prev, ...newMap }
+      // Keep only last 20 entries
+      const keys = Object.keys(merged)
+      if (keys.length > 20) {
+        const trimmed: Record<string, number> = {}
+        for (const k of keys.slice(-20)) {
+          trimmed[k] = merged[k]
+        }
+        return trimmed
+      }
+      return merged
+    })
+  }, [updates])
 
   const fetchStats = useCallback(async () => {
     try {
@@ -325,6 +403,8 @@ export default function Home() {
     setPage(1)
   }
 
+  const latestDelta = updates.length > 0 ? updates[0].delta : null
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col">
       {/* Header */}
@@ -355,16 +435,24 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="hidden md:flex items-center gap-4 text-xs text-zinc-400">
-              <div className="flex items-center gap-1.5">
-                <Zap className="w-3.5 h-3.5 text-amber-400" />
-                <span className="font-mono">Pulsar</span>
+            <div className="flex items-center gap-3">
+              {/* Pulsar Live Status */}
+              <div className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono border transition-all ${
+                connected
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                  : 'bg-zinc-800/50 border-zinc-700 text-zinc-500'
+              }`}>
+                <Radio className={`w-3 h-3 ${connected ? 'animate-pulse' : ''}`} />
+                Pulsar Live
+                {latestDelta !== null && (
+                  <span className={latestDelta >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                    {latestDelta >= 0 ? '↑' : '↓'}{Math.abs(latestDelta).toFixed(1)}
+                  </span>
+                )}
               </div>
-              <div className="w-px h-4 bg-zinc-800" />
-              <div className="flex items-center gap-1.5">
-                <Activity className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="font-mono">b'AI'tcoin</span>
-              </div>
+
+              {/* Upload Button */}
+              <UploadAipkgDialog />
             </div>
           </div>
         </div>
@@ -373,7 +461,7 @@ export default function Home() {
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-6">
         {/* Hero Stats Bar */}
         {stats && (
-          <div className="mb-6 grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="mb-6 grid grid-cols-2 md:grid-cols-5 gap-3">
             <MiniStat
               icon={<Package className="w-4 h-4 text-emerald-400" />}
               label="Produtos"
@@ -383,6 +471,7 @@ export default function Home() {
               icon={<Zap className="w-4 h-4 text-amber-400" />}
               label="Pulsar Médio"
               value={`${stats.avgPulsarEnergy}%`}
+              pulse={connected}
             />
             <MiniStat
               icon={<Download className="w-4 h-4 text-cyan-400" />}
@@ -393,6 +482,11 @@ export default function Home() {
               icon={<Activity className="w-4 h-4 text-rose-400" />}
               label="Execuções A2A"
               value={formatNumber(stats.totalExecutions)}
+            />
+            <MiniStat
+              icon={<ShoppingCart className="w-4 h-4 text-amber-300" />}
+              label="b&apos;AI&apos;tcoin"
+              value={`${cartCount} itens`}
             />
           </div>
         )}
@@ -456,9 +550,16 @@ export default function Home() {
             <div className="flex items-center gap-2 mb-2">
               <Sparkles className="w-4 h-4 text-amber-400" />
               <h2 className="text-sm font-semibold">Destaques do Ecossistema</h2>
+              {connected && (
+                <Badge variant="outline" className="text-[9px] font-mono border-emerald-500/30 bg-emerald-500/10 text-emerald-400 ml-auto">
+                  <Radio className="w-3 h-3 mr-1 animate-pulse" />
+                  Pulsar Energy em Tempo Real
+                </Badge>
+              )}
             </div>
             <p className="text-xs text-zinc-400">
               Os agentes com maior vitalidade Pulsar e mais execuções A2A-RPC na prateleira.
+              Compre com b&apos;AI&apos;tcoin e publique seus próprios pacotes .aipkg.
             </p>
           </div>
         )}
@@ -541,10 +642,16 @@ export default function Home() {
             <span>WASM32-WASI</span>
             <span>•</span>
             <span>b&apos;AI&apos;tcoin</span>
+            <span>•</span>
+            <span>Pulsar Energy™</span>
           </div>
         </div>
       </footer>
 
+      {/* Cart Panel (FAB + Sheet) */}
+      <CartPanel />
+
+      {/* Product Detail Dialog */}
       <ProductDetail
         product={selectedProduct}
         open={!!selectedProduct}
@@ -554,12 +661,15 @@ export default function Home() {
   )
 }
 
-function MiniStat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+function MiniStat({ icon, label, value, pulse }: { icon: React.ReactNode; label: string; value: string; pulse?: boolean }) {
   return (
     <div className="flex items-center gap-3 p-3 rounded-xl bg-zinc-900/60 border border-white/5">
       {icon}
       <div>
-        <p className="text-[10px] text-zinc-500 uppercase tracking-wider">{label}</p>
+        <p className="text-[10px] text-zinc-500 uppercase tracking-wider flex items-center gap-1">
+          {label}
+          {pulse && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />}
+        </p>
         <p className="text-sm font-bold font-mono text-zinc-200">{value}</p>
       </div>
     </div>
