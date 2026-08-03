@@ -79,3 +79,30 @@ Stage Summary:
 - Docker deployment ready
 - Health check endpoint operational
 - Pushed to GitHub: commit 2eae34f
+
+---
+Task ID: 5
+Agent: main
+Task: Security hardening, Zod validation, rate limiting, strict TS
+
+Work Log:
+- Created src/lib/rate-limit.ts (sliding window, per-route limits: auth 10/min, cart 20/min, review 15/min, upload 5/min, search 60/min, default 120/min)
+- Created src/lib/schemas.ts (Zod v4: loginSchema, purchaseSchema, reviewSchema, productsQuerySchema, uploadMetaSchema, referralClaimSchema, generic validate() helper)
+- Created src/middleware.ts (rate limiting proxy + CSP/HSTS/X-Frame-Options/X-Content-Type-Options/Referrer-Policy/Permissions-Policy headers)
+- Added Zod validation to /api/auth/login, /api/cart, /api/reviews, /api/products
+- Created src/app/error.tsx (global error boundary with reset action, error digest display)
+- Updated src/lib/db.ts (conditional Prisma logging: error+warn in dev, error only in prod)
+- Updated next.config.ts (reactStrictMode: true, poweredByHeader: false, X-Request-ID, X-XSS-Protection headers)
+- Enabled strict TypeScript: noImplicitAny: true, removed ignoreBuildErrors bypass
+- Fixed type errors: dashboard nullable productId filter, framer-motion ease tuple, setTimeout ref initialization
+- Excluded scripts/ and skills/ from tsconfig build
+- Created .editorconfig (2-space indent, LF, UTF-8)
+- Created CONTRIBUTING.md (architecture diagram, coding standards, commit conventions, PR process)
+- Build: 0 type errors, 18 routes compiled (including middleware proxy)
+
+Stage Summary:
+- All 4 critical API routes validated with Zod v4
+- Rate limiting active on all API routes
+- Security headers deployed via middleware
+- TypeScript strict mode enabled, zero build errors
+- Pushed to GitHub: commit 632d836

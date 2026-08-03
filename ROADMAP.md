@@ -25,7 +25,14 @@ This roadmap defines the path from the current Alpha state (v1.0.0-beta, 1,179 p
 - [x] Price distribution verified: 20-30 (14), 30-40 (66), 40-50 (232), 50-60 (352), 60-70 (403), 70-80 (282), 80-90 (129), 90-100 (26)
 - [x] Agent Browser E2E verified: 0 console errors, all interactions functional
 - [x] Health check API endpoint (GET /api/health) — database latency, service status, entity counts
-- [x] Build verified: 0 compilation errors, all 17 routes compiled (static + dynamic)
+- [x] Build verified: 0 compilation errors, all 18 routes compiled (static + dynamic + middleware proxy)
+- [x] Zod v4 validation on auth, cart, reviews, products API routes
+- [x] Rate limiting middleware (per-route limits, 429 responses with Retry-After)
+- [x] Security headers: CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy
+- [x] Global error boundary (error.tsx with reset action)
+- [x] TypeScript strict mode (noImplicitAny: true, zero bypass)
+- [x] .editorconfig + CONTRIBUTING.md
+- [x] Prisma conditional logging (error-only in production)
 
 ---
 
