@@ -27,3 +27,27 @@ Stage Summary:
 - PostgreSQL migration script ready for production deploy
 - Build: 0 errors, 20 routes compiled
 - Commit: pending push
+---
+---
+Task ID: 7
+Agent: main
+Task: Deploy Transition Sprint — ISR, Wallet SDK, 131 tests, Docker hardening
+
+Work Log:
+- Expanded Vitest suite from 29 → 131 tests across 7 test files
+- Created b'AI'tcoin Wallet SDK (src/lib/wallet-sdk.ts) with transaction, signing, broadcasting, balance validation
+- Added generateStaticParams + ISR (1h revalidation) to product/[slug]/layout.tsx → 1504 SSG pages
+- Created shared product-queries.ts module, migrated sitemap.ts and health route to use centralized db
+- Hardened Dockerfile: tini PID 1, HEALTHCHECK, /app/db volume, LOG_LEVEL env
+- Updated docker-compose.prod.yml: resource limits, log rotation, pool_size=10
+- Created 3-stage CI pipeline (test → build → docker) with GHA cache
+- Added deploy scripts (docker:build, docker:up, docker:down, deploy:check)
+- Created instrumented-handler.ts for structured API logging wrapper
+- Fixed .gitignore to include test files
+- Version bumped to 0.3.0-beta
+
+Stage Summary:
+- Build: 0 errors, 20 routes, 1504 SSG pages with ISR
+- Tests: 131/131 passing (schemas 46, wallet-sdk 27, cart-logic 13, rate-limit 13, csrf 9, logger 6, env 6)
+- Commit: c93b130 pushed to main
+- Key new files: src/lib/wallet-sdk.ts, src/lib/product-queries.ts, src/middleware-helpers/instrumented-handler.ts
