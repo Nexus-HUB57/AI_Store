@@ -21,7 +21,7 @@ interface SSEMessage {
 export function usePulsarSSE() {
   const { setConnected, pushUpdate } = usePulsarStore()
   const eventSourceRef = useRef<EventSource | null>(null)
-  const reconnectTimeout = useRef<ReturnType<typeof setTimeout>>()
+  const reconnectTimeout = useRef<ReturnType<typeof setTimeout>>(undefined)
   const reconnectAttempts = useRef(0)
 
   const connect = useCallback(() => {

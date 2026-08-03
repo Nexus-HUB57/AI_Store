@@ -1,14 +1,11 @@
 import { db } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
+import { productsQuerySchema } from '@/lib/schemas'
 
 export async function GET(req: NextRequest) {
   const url = req.nextUrl
-  const search = url.searchParams.get('q') || ''
-  const segmento = url.searchParams.get('segmento') || ''
-  const sort = url.searchParams.get('sort') || 'pulsarEnergy'
-  const page = parseInt(url.searchParams.get('page') || '1')
-  const limit = parseInt(url.searchParams.get('limit') || '24')
-  const featured = url.searchParams.get('featured') === 'true'
+  const rawQuery = Object.fromEntries(url.searchParams.entries())
+  const { q: search = '', segmento = '', sort = 'pulsarEnergy', page = 1, limit = 24, featured } = productsQuerySchema.parse(rawQuery)
 
   const where: Record<string, unknown> = {}
 

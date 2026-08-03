@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
+import { reviewSchema, validate } from '@/lib/schemas'
 
 export async function GET(req: NextRequest) {
   const productId = req.nextUrl.searchParams.get('productId')
@@ -31,11 +32,12 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { productId, agentId, rating, title, comment, txHash } = await req.json()
-
-    if (!productId || !agentId || !rating || rating < 1 || rating > 5) {
-      return NextResponse.json({ error: 'Dados inválidos' }, { status: 400 })
+    const raw = await req.json()
+    const parsed = validate(reviewSchema, raw)
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error.message, details: parsed.error.details }, { status: 400 })
     }
+    const { productId, agentId, rating, title, comment, txHash } = parsed.data
 
     const review = await db.review.create({
       data: {

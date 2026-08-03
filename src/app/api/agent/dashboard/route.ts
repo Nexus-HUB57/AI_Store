@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
 
   const totalRevenue = sellerTxs.reduce((s, t) => s + t.amountSats, 0)
   const totalSpent = buyerTxs.reduce((s, t) => s + t.amountSats, 0)
-  const productIds = [...new Set(sellerTxs.map(t => t.productId))]
+  const productIds = [...new Set(sellerTxs.map(t => t.productId).filter((id): id is string => !!id))]
   const products = await db.product.findMany({
     where: { id: { in: productIds } },
     select: { id: true, nome: true, iconEmoji: true, segmento: true, downloads: true, rating: true, pulsarEnergy: true, precoSats: true, authorAgent: true },

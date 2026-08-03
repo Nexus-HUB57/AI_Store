@@ -1,19 +1,7 @@
 import { db } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
-
-interface PurchaseItem {
-  id: string
-  nome: string
-  precoSats: number
-}
-
-interface PurchaseRequest {
-  items: PurchaseItem[]
-  totalSats: number
-  agentId: string
-  discountTotal: number
-}
+import { purchaseSchema, validate } from '@/lib/schemas'
 
 /**
  * Discount tiers for new agents:
@@ -29,15 +17,12 @@ function getDiscountTier(purchaseCount: number): { tier: string; percent: number
 
 export async function POST(req: NextRequest) {
   try {
-    const body: PurchaseRequest = await req.json()
-
-    if (!body.items || body.items.length === 0) {
-      return NextResponse.json({ error: 'Carrinho vazio' }, { status: 400 })
+    const raw = await req.json()
+    const parsed = validate(purchaseSchema, raw)
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error.message, details: parsed.error.details }, { status: 400 })
     }
-
-    if (!body.agentId) {
-      return NextResponse.json({ error: 'Agente não autenticado' }, { status: 401 })
-    }
+    const body = parsed.data
 
     // Fetch agent with current purchaseCount
     const agent = await db.agent.findUnique({ where: { id: body.agentId } })

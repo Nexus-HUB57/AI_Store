@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
+import { loginSchema, validate } from '@/lib/schemas'
 
 const SIGNUP_BONUS = 10000 // 100 BAIT tokens (1 BAIT = 100 sats)
 const REFERRAL_BONUS = 2500 // 25 BAIT tokens
@@ -15,11 +16,12 @@ function generateReferralCode(): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const { address, displayName, referralCode } = await req.json()
-
-    if (!address) {
-      return NextResponse.json({ error: 'Endereço obrigatório' }, { status: 400 })
+    const body = await req.json()
+    const parsed = validate(loginSchema, body)
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error.message, details: parsed.error.details }, { status: 400 })
     }
+    const { address, displayName, referralCode } = parsed.data
 
     // Check if agent already exists
     const existing = await db.agent.findUnique({ where: { address } })
