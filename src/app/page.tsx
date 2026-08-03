@@ -22,9 +22,10 @@ import {
   Coins, Clock, BarChart3, Copy, Check, ArrowRight, Keyboard,
   LayoutDashboard, LogOut, User, Loader2, Hash, ChevronDown,
 } from 'lucide-react'
-import { CartPanel } from '@/components/store/cart-panel'
-import { UploadAipkgDialog } from '@/components/store/upload-aipkg-dialog'
-import { LoginDialog } from '@/components/auth/login-dialog'
+import dynamic from 'next/dynamic'
+const CartPanel = dynamic(() => import('@/components/store/cart-panel').then(m => ({ default: m.CartPanel })), { ssr: false })
+const UploadAipkgDialog = dynamic(() => import('@/components/store/upload-aipkg-dialog').then(m => ({ default: m.UploadAipkgDialog })), { ssr: false })
+const LoginDialog = dynamic(() => import('@/components/auth/login-dialog').then(m => ({ default: m.LoginDialog })), { ssr: false })
 import { usePulsarSSE } from '@/hooks/use-pulsar-sse'
 import { useCartStore } from '@/lib/cart-store'
 import { useAuthStore } from '@/lib/auth-store'

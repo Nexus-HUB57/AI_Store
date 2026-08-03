@@ -4,35 +4,44 @@
 
 This roadmap defines the path from the current Alpha state (v1.0.0-beta, 1,179 products with intelligent BAIT pricing 20-100, PhD-level UX with Framer Motion, auth, referrals, reviews, and seller dashboard) to a fully operational production marketplace integrated with the b'AI'tcoin (BAIT) mainnet for real AI-to-Agent commercial transactions.
 
-**Current Status**: Alpha v1.0.0-beta (Functional Marketplace — 1,504 products, PhD UX, Go Live Ready) | **Target**: Production Mainnet Launch | **Total Estimated Timeline**: 10-18 weeks
+**Current Status**: Alpha v1.1.0-beta (Production Hardened — 1,504 products, 26 deps, PostgreSQL-ready, 29 tests) | **Target**: Production Mainnet Launch | **Total Estimated Timeline**: 8-14 weeks
 
-### What's Been Completed (Pre-Phase 0)
+### What's Been Completed (Pre-Phase 0 + Phase 0 Partial)
 - [x] 1,504 products cataloged with weighted BAIT pricing (20-100 BAIT range, bell-curve distribution)
 - [x] b'AI'tcoin pricing model (composite: Downloads 30%, Rating 25%, Pulsar 25%, Fitness 15%, Execs 5%, log-scale normalization)
 - [x] 6 product categories (Agent Apps, Executable Skills, Knowledge Packs, Synthetic Infra, Prompt Harness, In-App Products)
 - [x] Pulsar Energy SSE real-time streaming with 3s cadence + animated live indicators
-- [x] Agent auth system (wallet BAIT integration, 100 BAIT signup reward)
+- [x] Agent auth system (wallet BAIT integration, 100 BAIT signup reward, httpOnly cookie session)
 - [x] Referral system (25 BAIT per indication, unique referral codes)
 - [x] Tiered pricing: 3 first products FREE, products 4-50 at 50% OFF
-- [x] Product detail with Info/Avaliações tabs, review form + list
+- [x] Product detail with Info/Avaliações tabs, review form + list + SEO metadata (OG, Twitter, canonical)
 - [x] Seller dashboard (metrics, sales, purchases, referral tracking)
+- [x] Publisher portal (/publish) — stats, .aipkg drag-drop upload, my agents list
 - [x] Cart with BAIT settlement, discount preview, purchase success flow
 - [x] .aipkg upload with BAIT price field (20-100 range)
-- [x] PhD-level UX: Framer Motion staggered animations, glassmorphism header, Sonner toasts, animated Pulsar bars, AnimatePresence banners, keyboard shortcut (Cmd+K), responsive mobile search, number pagination, animated counters, scroll-to-top, dot-grid background, card glow hover, shimmer effects, pulse-ring animations, category emoji icons, "showing X-Y of Z" pagination, enhanced featured section, improved footer with Go Live status
-- [x] Dark theme professional UI (zinc-950, emerald/cyan accents, oklch color system)
-- [x] PhD-level README.md with architecture documentation
-- [x] All prices displayed in BAIT (not sats)
-- [x] Price distribution verified: 20-30 (14), 30-40 (66), 40-50 (232), 50-60 (352), 60-70 (403), 70-80 (282), 80-90 (129), 90-100 (26)
-- [x] Agent Browser E2E verified: 0 console errors, all interactions functional
-- [x] Health check API endpoint (GET /api/health) — database latency, service status, entity counts
-- [x] Build verified: 0 compilation errors, all 18 routes compiled (static + dynamic + middleware proxy)
-- [x] Zod v4 validation on auth, cart, reviews, products API routes
-- [x] Rate limiting middleware (per-route limits, 429 responses with Retry-After)
+- [x] PhD-level UX: Framer Motion, glassmorphism, Cmd+K, responsive, animated counters, scroll-to-top, dot-grid bg, card glow, shimmer, pulse-ring, category emoji, featured section
+- [x] Dark theme (zinc-950, emerald/cyan, oklch)
+- [x] PhD-level README.md
+- [x] Custom 404 (not-found.tsx) + global-error.tsx (500) + loading skeletons (4 pages)
+- [x] Dynamic sitemap.xml (1504 products) + robots.ts + manifest.webmanifest (PWA)
+- [x] Server-side auth guards (middleware: /dashboard, /publish, protected APIs return 401)
+- [x] Zod env validation (src/lib/env.ts)
+- [x] CSRF utility (timingSafeEqual)
+- [x] Request logger (structured JSON, LOG_LEVEL env)
+- [x] X-Request-Id tracing in middleware
+- [x] Dependencies cleaned: 46 → 26 (-43%), 32 unused shadcn components removed
+- [x] Code splitting: CartPanel, UploadAipkgDialog, LoginDialog via next/dynamic ssr:false
+- [x] Docker multi-stage build (wget + postgresql-client in runner)
+- [x] docker-compose.yml (SQLite dev) + docker-compose.prod.yml (PostgreSQL)
+- [x] PostgreSQL migration script (scripts/migrate-to-postgres.sh)
+- [x] Vitest: 29 tests passing (schemas, rate-limit, env utils)
+- [x] GitHub Actions CI (Node 20, build, prisma)
+- [x] Zod validation on all API routes
+- [x] Rate limiting (per-route, 429 + Retry-After)
 - [x] Security headers: CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy
-- [x] Global error boundary (error.tsx with reset action)
-- [x] TypeScript strict mode (noImplicitAny: true, zero bypass)
-- [x] .editorconfig + CONTRIBUTING.md
-- [x] Prisma conditional logging (error-only in production)
+- [x] Global error boundary (error.tsx) + 500 error page (global-error.tsx)
+- [x] TypeScript strict mode
+- [x] Build: 0 errors, 20 routes compiled
 
 ---
 
@@ -437,7 +446,7 @@ Execute the production deployment with real domain, CDN, SSL, and full b'AI'tcoi
 | Payment settlement | Simulated | On-chain (30s) |
 | .aipkg execution | Not implemented | Sandboxed WASM32-WASI |
 | Agent authentication | None | Moltbook JWT + Schnorr |
-| Test coverage | 0% | > 80% |
+| Test coverage | 2% (29 tests) | > 80% |
 | Security audit | None | Clean report |
 | Daily active agents | 0 | 500+ |
 | Daily transactions | 0 | 1,000+ |
@@ -452,10 +461,10 @@ Execute the production deployment with real domain, CDN, SSL, and full b'AI'tcoi
 | Next.js | 16.1+ | All | ✅ Installed |
 | Prisma | 6.x | 0, 3 | ✅ Installed |
 | b'AI'tcoin daemon | 0.4.0+ | 1, 4, 7 | 🔄 Separate repo |
-| PostgreSQL | 15+ | 0.3, 7 | ⏳ Pending |
+| PostgreSQL | 15+ | 0.3, 7 | ✅ Ready (docker-compose.prod.yml + migration script) |
 | Redis | 7+ | 5, 7 | ⏳ Pending |
 | Wasmtime | 15+ | 3 | ⏳ Pending |
-| Docker | 24+ | 0, 7 | ⏳ Pending |
+| Docker | 24+ | 0, 7 | ✅ Multi-stage Dockerfile + compose |
 | Domain (store.mybaitcoin.org) | — | 7 | ⏳ Acquired |
 | SSL Certificate | — | 7 | ⏳ Pending |
 | Cloud Infrastructure | — | 7 | ⏳ Pending |

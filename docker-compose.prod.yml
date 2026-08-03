@@ -1,0 +1,51 @@
+# AI Store Nexus AI-OS — Production Docker Compose
+# Usage: docker compose -f docker-compose.prod.yml up -d
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ai-store-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aistore}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aistore_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-ai_store}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aistore} -d ${POSTGRES_DB:-ai_store}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5432:5432"
+
+  ai-store:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-store-nexus
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-aistore}:${POSTGRES_PASSWORD:-aistore_secret}@postgres:5432/${POSTGRES_DB:-ai_store}?schema=public&connect_timeout=10
+      - NEXT_PUBLIC_BASE_URL=${NEXT_PUBLIC_BASE_URL:-https://ai-store.nexus-os.io}
+      - BAIT_PER_SAT=100
+      - SIGNUP_BONUS_BAIT=100
+      - REFERRAL_BONUS_BAIT=25
+      - PULSAR_INTERVAL_MS=3000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  pgdata:
+    driver: local
