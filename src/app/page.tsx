@@ -905,6 +905,11 @@ export default function Home() {
               {/* Upload */}
               <UploadAipkgDialog />
 
+              {/* Publish Portal */}
+              <Button variant="ghost" size="sm" className="h-9 text-xs text-zinc-400 hover:text-amber-400 gap-1.5 hidden sm:flex" onClick={() => window.location.href = '/publish'}>
+                <Sparkles className="w-3.5 h-3.5" />Publicar
+              </Button>
+
               {/* Auth / Dashboard */}
               {isAuthenticated && agent ? (
                 <div className="flex items-center gap-1.5">

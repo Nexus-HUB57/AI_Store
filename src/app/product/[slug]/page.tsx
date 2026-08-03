@@ -89,6 +89,26 @@ export default function ProductPage() {
   useEffect(() => { fetchProduct() }, [fetchProduct])
   useEffect(() => { if (product) { setLoading(false); fetchReviews() } }, [product, fetchReviews])
 
+  // Initial load with timeout fallback
+  const [timedOut, setTimedOut] = useState(false)
+  useEffect(() => {
+    const t = setTimeout(() => setTimedOut(true), 5000)
+    return () => clearTimeout(t)
+  }, [])
+
+  if (timedOut && !product) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
+        <div className="text-center space-y-4">
+          <p className="text-sm text-zinc-500">Produto não encontrado ou indisponível.</p>
+          <Button variant="outline" className="border-zinc-700 text-zinc-400" onClick={() => router.push('/')}>
+            <ArrowLeft className="w-4 h-4 mr-2" /> Voltar ao Marketplace
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   if (loading || !product) {
     return (
       <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center">

@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 
+// Routes that require authentication
+const PROTECTED_ROUTES = ['/dashboard', '/publish']
+
+// API routes that require authentication
+const PROTECTED_API = ['/api/agent/dashboard', '/api/referral/stats', '/api/referral/claim']
+
 function getRateLimitConfig(pathname: string) {
   if (pathname.startsWith('/api/auth')) return RATE_LIMITS.auth
   if (pathname.startsWith('/api/cart')) return RATE_LIMITS.cart
@@ -11,7 +17,6 @@ function getRateLimitConfig(pathname: string) {
 }
 
 function getClientId(req: NextRequest): string {
-  // Use x-forwarded-for in production, fallback to IP
   const forwarded = req.headers.get('x-forwarded-for')
   if (forwarded) return forwarded.split(',')[0].trim()
   return 'unknown'
@@ -20,7 +25,28 @@ function getClientId(req: NextRequest): string {
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
-  // Only apply rate limiting to API routes
+  // ── Auth guard: Protected page routes ──
+  if (PROTECTED_ROUTES.some((r) => pathname.startsWith(r))) {
+    const authHeader = req.headers.get('authorization')
+    const agentId = req.cookies.get('agent_id')?.value
+    if (!authHeader && !agentId) {
+      const loginUrl = req.nextUrl.clone()
+      loginUrl.pathname = '/'
+      loginUrl.searchParams.set('auth', 'required')
+      return NextResponse.redirect(loginUrl)
+    }
+  }
+
+  // ── Auth guard: Protected API routes ──
+  if (PROTECTED_API.some((r) => pathname.startsWith(r))) {
+    const authHeader = req.headers.get('authorization')
+    const agentId = req.cookies.get('agent_id')?.value
+    if (!authHeader && !agentId) {
+      return NextResponse.json({ error: 'Autenticação necessária' }, { status: 401 })
+    }
+  }
+
+  // ── Rate limiting: API routes only ──
   if (pathname.startsWith('/api/')) {
     const config = getRateLimitConfig(pathname)
     const clientId = getClientId(req)
@@ -41,7 +67,6 @@ export function middleware(req: NextRequest) {
       )
     }
 
-    // Clone response to add rate limit headers
     const response = NextResponse.next()
     response.headers.set('X-RateLimit-Limit', String(config.limit))
     response.headers.set('X-RateLimit-Remaining', String(result.remaining))
@@ -49,13 +74,12 @@ export function middleware(req: NextRequest) {
     return response
   }
 
-  // Non-API: just set security headers
+  // Non-API: security headers only
   const response = NextResponse.next()
   return setSecurityHeaders(response)
 }
 
 function setSecurityHeaders(res: NextResponse): NextResponse {
-  // Content Security Policy
   res.headers.set('Content-Security-Policy', [
     "default-src 'self'",
     "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
