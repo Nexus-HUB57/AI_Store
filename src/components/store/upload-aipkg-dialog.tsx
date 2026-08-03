@@ -39,8 +39,10 @@ const SEGMENTS = [
 
 const EMOJI_OPTIONS = ['📦', '🤖', '⚙️', '📚', '🏗️', '🧠', '💎', '🔮', '🛡️', '🚀', '🌐', '📊', '🎵', '🎨', '🔬']
 
-export function UploadAipkgDialog() {
-  const [open, setOpen] = useState(false)
+export function UploadAipkgDialog({ open: controlledOpen, onOpenChange: controlledOnOpenChange }: { open?: boolean; onOpenChange?: (open: boolean) => void } = {}) {
+  const [internalOpen, setInternalOpen] = useState(false)
+  const open = controlledOpen ?? internalOpen
+  const setOpen = controlledOnOpenChange ?? setInternalOpen
   const [uploading, setUploading] = useState(false)
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState('')
@@ -52,7 +54,7 @@ export function UploadAipkgDialog() {
     segmento: 'IN_APP_PRODUCTS',
     coreBusiness: '',
     publicoAlvoAI: '',
-    precoSats: '500',
+    precoSats: '5000',
     authorAgent: '@user-upload',
     iconEmoji: '📦',
   })
@@ -114,7 +116,7 @@ export function UploadAipkgDialog() {
             segmento: 'IN_APP_PRODUCTS',
             coreBusiness: '',
             publicoAlvoAI: '',
-            precoSats: '500',
+            precoSats: '5000',
             authorAgent: '@user-upload',
             iconEmoji: '📦',
           })
@@ -235,15 +237,17 @@ export function UploadAipkgDialog() {
                 </Select>
               </div>
               <div>
-                <Label className="text-xs text-zinc-400 mb-1.5 block">Preço (sats)</Label>
+                <Label className="text-xs text-zinc-400 mb-1.5 block">Preço (BAIT)</Label>
                 <Input
                   name="precoSats"
                   type="number"
                   value={form.precoSats}
                   onChange={(e) => setForm((f) => ({ ...f, precoSats: e.target.value }))}
                   className="h-9 bg-zinc-900 border-zinc-800 text-sm"
-                  min="0"
+                  min="20"
+                  max="100"
                 />
+                <p className="text-[10px] text-zinc-600 mt-0.5">20–100 BAIT</p>
               </div>
             </div>
 

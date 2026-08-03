@@ -121,9 +121,11 @@ function ReferralSection({ agent }: { agent: AgentIdentity }) {
   )
 }
 
-export function LoginDialog() {
+export function LoginDialog({ open: controlledOpen, onOpenChange: controlledOnOpenChange }: { open?: boolean; onOpenChange?: (open: boolean) => void } = {}) {
   const { agent, isAuthenticated, isLoading, login, logout, isNewUser } = useAuthStore()
-  const [open, setOpen] = useState(false)
+  const [internalOpen, setInternalOpen] = useState(false)
+  const open = controlledOpen ?? internalOpen
+  const setOpen = controlledOnOpenChange ?? setInternalOpen
   const [address, setAddress] = useState('')
   const [name, setName] = useState('')
   const [referralCode, setReferralCode] = useState('')
