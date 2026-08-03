@@ -113,6 +113,15 @@ function formatNumber(n: number): string {
   return n.toString()
 }
 
+const BAIT_PER_SAT = 100
+function toBait(sats: number): string {
+  return (sats / BAIT_PER_SAT).toFixed(0)
+}
+function baitLabel(sats: number): string {
+  const b = sats / BAIT_PER_SAT
+  return b.toFixed(0) + ' BAIT'
+}
+
 function PulsarBar({ value, productId, liveUpdates }: { value: number; productId: string; liveUpdates: Record<string, number> }) {
   const liveValue = liveUpdates[productId] ?? value
   const color = liveValue >= 90 ? 'bg-emerald-500' : liveValue >= 70 ? 'bg-amber-500' : 'bg-rose-500'
@@ -214,22 +223,22 @@ function ProductCard({ product, onClick, discountBadge }: { product: Product; on
               {discountBadge ? (
                 <>
                   <span className="text-[10px] font-mono text-emerald-400 line-through text-zinc-500">
-                    {product.precoSats.toLocaleString()} sats
+                    {toBait(product.precoSats)} BAIT
                   </span>
                   <Badge className={`text-[8px] px-1 py-0 border ${discountBadge.color}`}>
                     {discountBadge.label}
                   </Badge>
                   {discountBadge.label === 'GRÁTIS' ? (
-                    <span className="text-xs font-mono text-emerald-400">0 sats</span>
+                    <span className="text-xs font-mono text-emerald-400">0 BAIT</span>
                   ) : (
                     <span className="text-xs font-mono text-emerald-400">
-                      {Math.floor(product.precoSats / 2).toLocaleString()} sats
+                      {toBait(Math.floor(product.precoSats / 2))} BAIT
                     </span>
                   )}
                 </>
               ) : (
                 <span className="text-xs font-mono text-emerald-400">
-                  {product.precoSats.toLocaleString()} sats
+                  {toBait(product.precoSats)} BAIT
                 </span>
               )}
             </div>
@@ -409,14 +418,14 @@ function ProductDetail({ product, open, onClose }: { product: Product | null; op
                       <div className="flex items-center gap-2 mt-1">
                         {discount ? (
                           <>
-                            <span className="text-sm font-mono text-zinc-500 line-through">{product.precoSats.toLocaleString()} sats</span>
+                            <span className="text-sm font-mono text-zinc-500 line-through">{toBait(product.precoSats)} BAIT</span>
                             <Badge className={`text-[10px] border ${discount.color}`}>{discount.label}</Badge>
                             <span className="text-lg font-bold font-mono text-emerald-400">
-                              {chargedPrice === 0 ? 'GRÁTIS' : chargedPrice.toLocaleString() + ' sats'}
+                              {chargedPrice === 0 ? 'GRÁTIS' : toBait(chargedPrice) + ' BAIT'}
                             </span>
                           </>
                         ) : (
-                          <span className="text-lg font-bold font-mono text-emerald-400">{product.precoSats.toLocaleString()} sats</span>
+                          <span className="text-lg font-bold font-mono text-emerald-400">{toBait(product.precoSats)} BAIT</span>
                         )}
                       </div>
                     </div>
@@ -620,7 +629,7 @@ export default function Home() {
                 <h1 className="text-lg font-bold bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent leading-tight">
                   AI Store
                 </h1>
-                <p className="text-[10px] text-zinc-500 font-mono">NEXUS AI-OS • A2A-RPC</p>
+                <p className="text-[10px] text-zinc-500 font-mono">NEXUS AI-OS • b&apos;AI&apos;tcoin Mainnet • A2A-RPC/v1</p>
               </div>
             </div>
 
@@ -652,6 +661,11 @@ export default function Home() {
                 )}
               </div>
 
+              <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono border bg-emerald-500/10 border-emerald-500/30 text-emerald-400">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Go Live Ready
+              </div>
+
               {/* Upload Button */}
               <UploadAipkgDialog />
               <LoginDialog />
@@ -663,7 +677,7 @@ export default function Home() {
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-6">
         {/* Hero Stats Bar */}
         {stats && (
-          <div className="mb-6 grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="mb-6 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
             <MiniStat
               icon={<Package className="w-4 h-4 text-emerald-400" />}
               label="Produtos"
@@ -689,6 +703,11 @@ export default function Home() {
               icon={<ShoppingCart className="w-4 h-4 text-amber-300" />}
               label="b&apos;AI&apos;tcoin"
               value={`${cartCount} itens`}
+            />
+            <MiniStat
+              icon={<TrendingUp className="w-4 h-4 text-emerald-300" />}
+              label="Faixa de Preço"
+              value="20–100 BAIT"
             />
           </div>
         )}
@@ -990,7 +1009,7 @@ function DashboardSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (
               <p className="text-[10px] text-zinc-500 font-mono">{agent.address.slice(0, 20)}...</p>
             </div>
             <Badge className="text-[10px] font-mono border-amber-500/30 bg-amber-500/10 text-amber-400">
-              <Coins className="w-3 h-3 mr-1" />{agent.balanceSats.toLocaleString()} sats
+              <Coins className="w-3 h-3 mr-1" />{toBait(agent.balanceSats)} BAIT
             </Badge>
           </div>
         </SheetHeader>
@@ -1013,11 +1032,11 @@ function DashboardSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div className="p-3 rounded-xl bg-zinc-900/60 border border-white/5">
                     <p className="text-[10px] text-zinc-500 uppercase">Receita Total</p>
-                    <p className="text-sm font-bold font-mono text-emerald-400 mt-1">{data.metrics.totalRevenue.toLocaleString()} sats</p>
+                    <p className="text-sm font-bold font-mono text-emerald-400 mt-1">{toBait(data.metrics.totalRevenue)} BAIT</p>
                   </div>
                   <div className="p-3 rounded-xl bg-zinc-900/60 border border-white/5">
                     <p className="text-[10px] text-zinc-500 uppercase">Total Gasto</p>
-                    <p className="text-sm font-bold font-mono text-rose-400 mt-1">{data.metrics.totalSpent.toLocaleString()} sats</p>
+                    <p className="text-sm font-bold font-mono text-rose-400 mt-1">{toBait(data.metrics.totalSpent)} BAIT</p>
                   </div>
                   <div className="p-3 rounded-xl bg-zinc-900/60 border border-white/5">
                     <p className="text-[10px] text-zinc-500 uppercase">Vendas</p>
@@ -1115,7 +1134,7 @@ function DashboardSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (
                       </div>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="text-xs font-mono text-emerald-400">{p.precoSats.toLocaleString()} sats</p>
+                      <p className="text-xs font-mono text-emerald-400">{toBait(p.precoSats)} BAIT</p>
                       <div className="flex items-center gap-1 mt-0.5">
                         <Zap className="w-3 h-3 text-amber-400" />
                         <span className="text-[10px] font-mono text-zinc-400">{p.pulsarEnergy.toFixed(0)}%</span>
@@ -1153,7 +1172,7 @@ function DashboardSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (
                   </div>
                   <div className="p-3 rounded-xl bg-zinc-900/60 border border-white/5">
                     <p className="text-[10px] text-zinc-500 uppercase">Total Ganho</p>
-                    <p className="text-lg font-bold font-mono text-amber-400">{refData.totalEarned.toLocaleString()} sats</p>
+                    <p className="text-lg font-bold font-mono text-amber-400">{toBait(refData.totalEarned)} BAIT</p>
                   </div>
                 </div>
 
@@ -1170,7 +1189,7 @@ function DashboardSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (
                           <p className="text-xs font-medium truncate">{r.referred?.displayName || 'Agente'}</p>
                           <p className="text-[10px] text-zinc-500">{r.referred?.createdAt ? timeAgo(r.referred.createdAt) : ''}</p>
                         </div>
-                        <Badge className="text-[9px] bg-amber-500/20 text-amber-400 border-amber-500/30">+{r.amountSats.toLocaleString()} sats</Badge>
+                        <Badge className="text-[9px] bg-amber-500/20 text-amber-400 border-amber-500/30">+{toBait(r.amountSats)} BAIT</Badge>
                       </div>
                     ))}
                   </div>

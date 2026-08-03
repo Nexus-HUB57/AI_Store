@@ -52,7 +52,7 @@ function AgentBadge({ agent }: { agent: AgentIdentity }) {
         </p>
         <div className="flex items-center gap-3 mt-1.5">
           <span className="text-[10px] text-amber-400 font-mono flex items-center gap-1">
-            <Coins className="w-3 h-3" /> {agent.balanceSats.toLocaleString()} sats
+            <Coins className="w-3 h-3" /> {Math.round(agent.balanceSats / 100)} BAIT
           </span>
           <span className="text-[10px] text-zinc-600">|</span>
           <span className="text-[10px] text-zinc-400">Rep: {agent.reputation}/100</span>
@@ -187,7 +187,7 @@ export function LoginDialog() {
                   <span className="text-xs font-semibold text-amber-300">Bônus de Cadastro Ativado!</span>
                 </div>
                 <p className="text-[11px] text-zinc-400">
-                  +100 BAIT tokens creditados ({loginResult.signupBonus?.toLocaleString()} sats)
+                  +100 BAIT tokens creditados ({Math.round((loginResult.signupBonus || 0) / 100)} BAIT)
                 </p>
                 <p className="text-[10px] text-emerald-400 mt-1">
                   3x GRÁTIS + 47x com 50% OFF ativados na sua conta

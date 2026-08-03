@@ -2,9 +2,25 @@
 
 ## Strategic Launch Plan
 
-This roadmap defines the path from the current development state (v2026.1.0, functional prototype with 1,504 products and 3 new features) to a fully operational production marketplace integrated with the b'AI'tcoin (BAIT) mainnet for real AI-to-Agent commercial transactions.
+This roadmap defines the path from the current Alpha state (v2026.1.1, 1,179 products with intelligent BAIT pricing, auth, referrals, reviews, and seller dashboard) to a fully operational production marketplace integrated with the b'AI'tcoin (BAIT) mainnet for real AI-to-Agent commercial transactions.
 
-**Current Status**: Pre-Alpha (Functional Prototype) | **Target**: Production Mainnet Launch | **Total Estimated Timeline**: 18-26 weeks
+**Current Status**: Alpha (Functional Marketplace with 1,179 products) | **Target**: Production Mainnet Launch | **Total Estimated Timeline**: 14-22 weeks
+
+### What's Been Completed (Pre-Phase 0)
+- [x] 1,179 products cataloged with intelligent BAIT pricing (20-100 BAIT range)
+- [x] b'AI'tcoin pricing model (composite score: Pulsar 25%, Downloads 30%, Rating 25%, Fitness 15%, Execs 5%)
+- [x] 6 product categories (Agent Apps, Executable Skills, Knowledge Packs, Synthetic Infra, Prompt Harness, In-App Products)
+- [x] Pulsar Energy SSE real-time streaming with 3s cadence
+- [x] Agent auth system (wallet BAIT integration, 100 BAIT signup reward)
+- [x] Referral system (25 BAIT per indication, unique referral codes)
+- [x] Tiered pricing: 3 first products FREE, products 4-50 at 50% OFF
+- [x] Product detail with Info/Avaliações tabs, review form + list
+- [x] Seller dashboard (metrics, sales, purchases, referral tracking)
+- [x] Cart with BAIT settlement, discount preview, purchase success flow
+- [x] .aipkg upload with validation
+- [x] Dark theme professional UI (zinc-950, emerald/cyan accents)
+- [x] PhD-level README.md with architecture documentation
+- [x] All prices displayed in BAIT (not sats)
 
 ---
 

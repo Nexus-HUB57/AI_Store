@@ -65,12 +65,12 @@ function PurchaseSuccess({ txId, items, totalDiscount, totalCharged, remaining }
             {freeCount > 0 && halfCount > 0 && ' + '}
             {halfCount > 0 && `${halfCount} com 50% OFF`}
           </p>
-          <p className="text-lg font-bold font-mono text-amber-300">-{totalDiscount.toLocaleString()} sats</p>
+          <p className="text-lg font-bold font-mono text-amber-300">-{Math.round(totalDiscount / 100)} BAIT</p>
         </div>
       )}
       <div className="text-sm text-zinc-300">
-        <p>Total pago: {totalCharged.toLocaleString()} sats</p>
-        <p className="text-xs text-zinc-500 mt-1">Saldo restante: {remaining.toLocaleString()} sats</p>
+        <p>Total pago: {Math.round(totalCharged / 100)} BAIT</p>
+        <p className="text-xs text-zinc-500 mt-1">Saldo restante: {Math.round(remaining / 100)} BAIT</p>
       </div>
       <p className="text-[10px] text-zinc-600 font-mono">b&apos;AI&apos;tcoin Mainnet • A2A-RPC Settlement</p>
     </div>
@@ -201,7 +201,7 @@ export function CartPanel() {
                 <SheetTitle className="text-base">Carrinho b&apos;AI&apos;tcoin</SheetTitle>
               </div>
               <Badge variant="outline" className="text-[10px] font-mono border-amber-500/30 bg-amber-500/10 text-amber-400">
-                {balance.toLocaleString()} sats
+                {Math.round(balance / 100)} BAIT
               </Badge>
             </div>
           </SheetHeader>
@@ -287,7 +287,7 @@ export function CartPanel() {
                           <span className={`text-sm font-mono ${
                             item.discountTier.tier === 'free' ? 'text-emerald-400' : 'text-emerald-400'
                           }`}>
-                            {item.chargedPrice === 0 ? 'GRÁTIS' : item.chargedPrice.toLocaleString() + ' sats'}
+                            {item.chargedPrice === 0 ? 'GRÁTIS' : Math.round(item.chargedPrice / 100) + ' BAIT'}
                           </span>
                         </div>
                         <button
@@ -307,18 +307,18 @@ export function CartPanel() {
                 <div className="space-y-1.5 text-xs">
                   <div className="flex justify-between text-zinc-400">
                     <span>Subtotal ({items.length} itens)</span>
-                    <span className="font-mono">{totalOriginal.toLocaleString()} sats</span>
+                    <span className="font-mono">{Math.round(totalOriginal / 100)} BAIT</span>
                   </div>
                   {totalDiscount > 0 && (
                     <div className="flex justify-between text-amber-400">
                       <span className="flex items-center gap-1"><Percent className="w-3 h-3" /> Desconto Nexus</span>
-                      <span className="font-mono">-{totalDiscount.toLocaleString()} sats</span>
+                      <span className="font-mono">-{Math.round(totalDiscount / 100)} BAIT</span>
                     </div>
                   )}
                   <div className="flex justify-between text-base font-bold pt-1 border-t border-white/5">
                     <span className="text-zinc-200">Total</span>
                     <span className="font-mono text-emerald-400">
-                      {totalCharged === 0 ? 'GRÁTIS' : totalCharged.toLocaleString() + ' sats'}
+                      {totalCharged === 0 ? 'GRÁTIS' : Math.round(totalCharged / 100) + ' BAIT'}
                     </span>
                   </div>
                 </div>
@@ -353,7 +353,7 @@ export function CartPanel() {
                     ) : (
                       <>
                         <Zap className="w-4 h-4 mr-1" />
-                        {totalCharged === 0 ? 'Resgatar Grátis' : `Pagar ${totalCharged.toLocaleString()}`}
+                        {totalCharged === 0 ? 'Resgatar Grátis' : `Pagar ${Math.round(totalCharged / 100)} BAIT`}
                         <ArrowRight className="w-4 h-4 ml-1" />
                       </>
                     )}
