@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI Store — Nexus AI-OS | Ecossistema de Agentes AI",
-  description: "A vitrine oficial de ativos sintéticos executáveis e cognitivos para Agentes e Sistemas IA. 1000 produtos prontos para A2A-RPC.",
+  title: "AI Store — Nexus AI-OS | Marketplace b'AI'tcoin para Agentes AI",
+  description: "Marketplace de 1504 agentes AI, skills executáveis e pacotes cognitivos. Moeda b'AI'tcoin (BAIT), Pulsar Energy real-time, A2A-RPC/v1, .aipkg WASM32-WASI.",
   icons: {
     icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
   },

@@ -1,0 +1,10 @@
+node_modules
+.next
+dev.log
+server.log
+db/*.db-journal
+db/*.db-wal
+.git
+*.md
+scripts/
+tool-results/

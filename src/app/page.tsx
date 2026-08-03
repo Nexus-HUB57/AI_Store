@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/dialog'
 import {
   Search, Zap, Download, Star, Activity, ArrowUpDown,
-  ChevronLeft, ChevronRight, ExternalLink, Cpu, Shield,
+  ChevronLeft, ChevronRight, ChevronUp, ExternalLink, Cpu, Shield,
   TrendingUp, Package, Sparkles, Layers, ShoppingCart,
   Plus, Wifi, WifiOff, Radio, Gift, X, Eye, Users,
   Coins, Clock, BarChart3, Copy, Check, ArrowRight, Keyboard,
@@ -34,6 +34,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { ReviewForm } from '@/components/product/review-form'
 import { StarRating } from '@/components/product/star-rating'
 import { Progress } from '@/components/ui/progress'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 /* ================================================================== */
 /*  Types                                                              */
@@ -71,6 +72,15 @@ const SEGMENT_COLORS: Record<string, string> = {
 const BAIT_PER_SAT = 100
 const toBait = (sats: number) => (sats / BAIT_PER_SAT).toFixed(0)
 const baitLabel = (sats: number) => (sats / BAIT_PER_SAT).toFixed(0) + ' BAIT'
+
+const CATEGORY_ICONS: Record<string, string> = {
+  AGENT_APPS: '🤖',
+  EXECUTABLE_SKILLS: '⚡',
+  KNOWLEDGE_PACKS: '🧠',
+  SYNTHETIC_INFRASTRUCTURE: '🏗️',
+  PROMPT_HARNESS: '🎯',
+  IN_APP_PRODUCTS: '🛍️',
+}
 
 function formatNumber(n: number): string {
   if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'
@@ -114,6 +124,62 @@ const slideUp = {
 
 const staggerContainer = {
   hidden: {}, visible: { transition: { staggerChildren: 0.04 } },
+}
+
+/* ================================================================== */
+/*  AnimatedCounter                                                    */
+/* ================================================================== */
+
+function AnimatedCounter({ target, duration = 1200, suffix = '' }: { target: number; duration?: number; suffix?: string }) {
+  const [value, setValue] = useState(0)
+  const ref = useRef<HTMLSpanElement>(null)
+  const hasAnimated = useRef(false)
+
+  useEffect(() => {
+    if (hasAnimated.current) return
+    hasAnimated.current = true
+    const start = performance.now()
+    const animate = (now: number) => {
+      const elapsed = now - start
+      const progress = Math.min(elapsed / duration, 1)
+      const eased = 1 - Math.pow(1 - progress, 3)
+      setValue(Math.floor(eased * target))
+      if (progress < 1) requestAnimationFrame(animate)
+    }
+    requestAnimationFrame(animate)
+  }, [target, duration])
+
+  return <span ref={ref}>{value.toLocaleString('pt-BR')}{suffix}</span>
+}
+
+/* ================================================================== */
+/*  ScrollToTop                                                        */
+/* ================================================================== */
+
+function ScrollToTopButton() {
+  const [visible, setVisible] = useState(false)
+  useEffect(() => {
+    const onScroll = () => setVisible(window.scrollY > 600)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+  return (
+    <AnimatePresence>
+      {visible && (
+        <motion.button
+          initial={{ opacity: 0, scale: 0.8, y: 16 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.8, y: 16 }}
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          className="fixed bottom-6 left-6 z-50 w-10 h-10 rounded-xl bg-zinc-800/90 backdrop-blur-xl border border-white/10 flex items-center justify-center text-zinc-400 hover:text-emerald-400 hover:border-emerald-500/30 transition-colors shadow-lg"
+        >
+          <ChevronUp className="w-4 h-4" />
+        </motion.button>
+      )}
+    </AnimatePresence>
+  )
 }
 
 /* ================================================================== */
@@ -168,7 +234,7 @@ function ProductCard({ product, onClick, discountBadge, index }: {
 
   return (
     <motion.div variants={cardVariants} custom={index} initial="hidden" animate="visible" whileHover={{ y: -4, transition: { duration: 0.2 } }} whileTap={{ scale: 0.985 }} className="cursor-pointer" onClick={onClick}>
-      <Card className="group border-white/[0.07] bg-gradient-to-br from-white/[0.03] to-transparent hover:border-white/[0.15] hover:from-white/[0.06] transition-all duration-300 overflow-hidden h-full">
+      <Card className="group card-glow-hover border-white/[0.07] bg-gradient-to-br from-white/[0.03] to-transparent hover:border-emerald-500/20 hover:from-white/[0.06] transition-all duration-300 overflow-hidden h-full">
         <CardContent className="p-4 flex flex-col h-full">
           <div className="flex items-start justify-between gap-3 mb-3">
             <div className="flex items-center gap-3 min-w-0">
@@ -278,10 +344,11 @@ function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string
   )
 }
 
-function MiniStat({ icon, label, value, pulse }: { icon: React.ReactNode; label: string; value: string; pulse?: boolean }) {
+function MiniStat({ icon, label, value, pulse, animatedValue }: { icon: React.ReactNode; label: string; value: string; pulse?: boolean; animatedValue?: number }) {
+  const shouldAnimate = animatedValue !== undefined && animatedValue > 0 && typeof animatedValue === 'number' && !value.includes('%') && !value.includes('.')
   return (
-    <motion.div variants={slideUp} initial="hidden" animate="visible" className="flex items-center gap-3 p-3.5 rounded-xl bg-zinc-900/60 border border-white/[0.05] hover:border-white/[0.1] transition-colors">
-      <div className="shrink-0">{icon}</div><div><p className="text-[10px] text-zinc-500 uppercase tracking-wider flex items-center gap-1">{label}{pulse && <motion.span className="w-1.5 h-1.5 rounded-full bg-emerald-400" animate={{ opacity: [1, 0.2, 1] }} transition={{ duration: 2, repeat: Infinity }} />}</p><p className="text-sm font-bold font-mono text-zinc-200 tabular-nums">{value}</p></div>
+    <motion.div variants={slideUp} initial="hidden" animate="visible" whileHover={{ scale: 1.02, transition: { duration: 0.2 } }} className="flex items-center gap-3 p-3.5 rounded-xl bg-zinc-900/60 border border-white/[0.05] hover:border-white/[0.1] transition-colors">
+      <div className="shrink-0">{icon}</div><div><p className="text-[10px] text-zinc-500 uppercase tracking-wider flex items-center gap-1">{label}{pulse && <motion.span className="w-1.5 h-1.5 rounded-full bg-emerald-400" animate={{ opacity: [1, 0.2, 1] }} transition={{ duration: 2, repeat: Infinity }} />}</p><p className="text-sm font-bold font-mono text-zinc-200 tabular-nums">{shouldAnimate ? <AnimatedCounter target={animatedValue} /> : value}</p></div>
     </motion.div>
   )
 }
@@ -721,6 +788,19 @@ export default function Home() {
     load()
   }, [fetchStats, fetchProducts])
 
+  /* ⌘K keyboard shortcut */
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        searchInputRef.current?.focus()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
+
   useEffect(() => {
     if (updates.length === 0) return
     const timer = setTimeout(() => {
@@ -756,7 +836,7 @@ export default function Home() {
   const skeletonCount = Array.from({ length: PER_PAGE }, (_, i) => i)
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col">
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col bg-dot-grid">
       {/* ============ Header ============ */}
       <header className="sticky top-0 z-50 border-b border-white/[0.08] bg-zinc-950/70 backdrop-blur-2xl supports-[backdrop-filter]:bg-zinc-950/60">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3">
@@ -781,10 +861,11 @@ export default function Home() {
             <div className="relative flex-1 max-w-md hidden sm:block">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
               <Input
+                ref={searchInputRef}
                 placeholder="Buscar agentes, skills, pacotes..."
                 value={search}
                 onChange={(e) => handleSearch(e.target.value)}
-                className="pl-9 pr-16 h-9 bg-zinc-900/80 border-zinc-800 text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-emerald-500/50"
+                className="pl-9 pr-16 h-9 bg-zinc-900/80 border-zinc-800 text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/20 transition-all"
               />
               <kbd className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none inline-flex h-5 items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-1.5 font-mono text-[10px] text-zinc-500">
                 <Keyboard className="w-3 h-3" />⌘K
@@ -873,11 +954,11 @@ export default function Home() {
             animate="visible"
             className="grid grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3 mb-6"
           >
-            <MiniStat icon={<Package className="w-5 h-5 text-emerald-400" />} label="Produtos" value={String(stats.total)} />
+            <MiniStat icon={<Package className="w-5 h-5 text-emerald-400" />} label="Produtos" value={String(stats.total)} animatedValue={stats.total} />
             <MiniStat icon={<Zap className="w-5 h-5 text-amber-400" />} label="Pulsar Médio" value={stats.avgPulsarEnergy.toFixed(0) + '%'} pulse={connected} />
-            <MiniStat icon={<Download className="w-5 h-5 text-cyan-400" />} label="Downloads" value={formatNumber(stats.totalDownloads)} />
-            <MiniStat icon={<Activity className="w-5 h-5 text-violet-400" />} label="Execuções" value={formatNumber(stats.totalExecutions)} />
-            <MiniStat icon={<Sparkles className="w-5 h-5 text-amber-400" />} label="Destaque" value={String(stats.featuredCount)} />
+            <MiniStat icon={<Download className="w-5 h-5 text-cyan-400" />} label="Downloads" value={formatNumber(stats.totalDownloads)} animatedValue={stats.totalDownloads} />
+            <MiniStat icon={<Activity className="w-5 h-5 text-violet-400" />} label="Execuções" value={formatNumber(stats.totalExecutions)} animatedValue={stats.totalExecutions} />
+            <MiniStat icon={<Sparkles className="w-5 h-5 text-amber-400" />} label="Destaque" value={String(stats.featuredCount)} animatedValue={stats.featuredCount} />
           </motion.div>
         )}
 
@@ -889,7 +970,7 @@ export default function Home() {
               onClick={() => handleCategory('all')}
               className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${segmento === 'all' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-zinc-900/60 text-zinc-400 border-zinc-800 hover:border-zinc-700'}`}
             >
-              Todos ({stats.total})
+              🌐 Todos ({stats.total})
             </motion.button>
             {stats.categories.map(cat => (
               <motion.button
@@ -898,7 +979,7 @@ export default function Home() {
                 onClick={() => handleCategory(cat.key)}
                 className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${segmento === cat.key ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-zinc-900/60 text-zinc-400 border-zinc-800 hover:border-zinc-700'}`}
               >
-                {cat.nome} ({cat.count})
+                {CATEGORY_ICONS[cat.key] || '📦'} {cat.nome} ({cat.count})
               </motion.button>
             ))}
           </div>
@@ -929,7 +1010,11 @@ export default function Home() {
               </Badge>
             )}
           </div>
-          <span className="text-[11px] text-zinc-600">{total} produto{total !== 1 ? 's' : ''}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-zinc-600">
+              Mostrando {((page - 1) * PER_PAGE) + 1}–{Math.min(page * PER_PAGE, total)} de {total}
+            </span>
+          </div>
         </div>
 
         {/* Banners - AnimatePresence */}
@@ -983,12 +1068,15 @@ export default function Home() {
               exit={{ opacity: 0, y: 12 }}
               className="mb-6"
             >
-              <div className="relative rounded-2xl overflow-hidden border border-amber-500/20 bg-gradient-to-r from-amber-500/10 via-transparent to-emerald-500/10 p-5">
-                <div className="absolute inset-0 bg-gradient-to-r from-amber-500/5 via-transparent to-emerald-500/5 animate-gradient" style={{ backgroundSize: '200% 200%' }} />
+              <div className="relative rounded-2xl overflow-hidden border border-amber-500/20 bg-gradient-to-r from-amber-500/[0.07] via-emerald-500/[0.03] to-cyan-500/[0.07] p-5">
+                <div className="absolute inset-0 animate-shimmer" />
                 <div className="relative">
                   <div className="flex items-center gap-2 mb-3">
-                    <Sparkles className="w-4 h-4 text-amber-400" />
+                    <motion.div animate={{ rotate: [0, 360] }} transition={{ duration: 8, repeat: Infinity, ease: "linear" }}>
+                      <Sparkles className="w-4 h-4 text-amber-400" />
+                    </motion.div>
                     <h3 className="text-sm font-bold text-zinc-100">Produtos em Destaque</h3>
+                    <Badge variant="outline" className="text-[9px] font-mono bg-amber-500/10 text-amber-400 border-amber-500/20 ml-1">CURATED</Badge>
                     <Button variant="ghost" size="icon" className="h-6 w-6 ml-auto text-zinc-500" onClick={() => setShowFeatured(false)}>
                       <X className="w-3.5 h-3.5" />
                     </Button>
@@ -997,23 +1085,24 @@ export default function Home() {
                     {featuredProducts.map(fp => (
                       <motion.div
                         key={fp.id}
-                        whileHover={{ scale: 1.03 }}
+                        whileHover={{ scale: 1.03, y: -2 }}
                         whileTap={{ scale: 0.97 }}
-                        className="shrink-0 w-48 p-3 rounded-xl bg-zinc-900/80 border border-white/[0.06] cursor-pointer hover:border-white/[0.12] transition-colors"
+                        className="shrink-0 w-52 p-3 rounded-xl bg-zinc-900/80 border border-white/[0.06] cursor-pointer hover:border-amber-500/30 transition-all group"
                         onClick={() => setSelectedProduct(fp)}
                       >
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xl">{fp.iconEmoji}</span>
+                        <div className="flex items-center gap-2.5 mb-2.5">
+                          <motion.span className="text-2xl" whileHover={{ scale: 1.15, rotate: [0, -8, 8, 0] }} transition={{ duration: 0.4 }}>{fp.iconEmoji}</motion.span>
                           <div className="min-w-0">
-                            <p className="text-xs font-semibold text-zinc-200 truncate">{fp.nome}</p>
-                            <p className="text-[10px] text-zinc-600 font-mono">v{fp.version}</p>
+                            <p className="text-xs font-semibold text-zinc-200 truncate group-hover:text-amber-300 transition-colors">{fp.nome}</p>
+                            <p className="text-[10px] text-zinc-600 font-mono">v{fp.version} • {fp.authorAgent}</p>
                           </div>
                         </div>
+                        <Badge variant="outline" className={`text-[9px] mb-2 border ${SEGMENT_COLORS[fp.segmento] || ''}`}>{fp.segmento.replace(/_/g, ' ')}</Badge>
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-bold font-mono text-emerald-400">{toBait(fp.precoSats)} BAIT</span>
-                          <div className="flex items-center gap-1">
-                            <Zap className="w-3 h-3 text-amber-400" />
-                            <span className="text-[10px] font-mono text-zinc-400">{fp.pulsarEnergy.toFixed(0)}%</span>
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-0.5"><Star className="w-3 h-3 text-amber-400" /><span className="text-[10px] text-zinc-400 font-mono">{fp.rating.toFixed(1)}</span></div>
+                            <div className="flex items-center gap-0.5"><Zap className="w-3 h-3 text-emerald-400" /><span className="text-[10px] text-zinc-400 font-mono">{fp.pulsarEnergy.toFixed(0)}%</span></div>
                           </div>
                         </div>
                       </motion.div>
@@ -1135,40 +1224,46 @@ export default function Home() {
       </main>
 
       {/* ============ Footer ============ */}
-      <footer className="border-t border-white/[0.06] bg-zinc-950/80 mt-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+      <footer className="border-t border-white/[0.06] bg-zinc-950/90 backdrop-blur-xl mt-auto">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Branding */}
-            <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center">
-                <Layers className="w-4 h-4 text-white" />
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-emerald-500/10">
+                <Layers className="w-5 h-5 text-white" />
               </div>
               <div>
-                <p className="text-xs font-semibold text-zinc-300">AI Store</p>
-                <p className="text-[10px] text-zinc-600 font-mono">v1.0.0-beta</p>
+                <p className="text-sm font-bold text-zinc-200">AI Store — Nexus AI-OS</p>
+                <p className="text-[10px] text-zinc-500 font-mono">v1.0.0-beta • 1504 produtos • b'AI'tcoin Mainnet</p>
               </div>
             </div>
 
             {/* Protocol badges */}
-            <div className="flex items-center gap-2 flex-wrap justify-center">
+            <div className="flex items-center gap-2 flex-wrap justify-center md:justify-start">
               <Badge variant="outline" className="text-[9px] font-mono bg-zinc-900/60 text-zinc-500 border-zinc-800">A2A-RPC/v1</Badge>
               <Badge variant="outline" className="text-[9px] font-mono bg-zinc-900/60 text-zinc-500 border-zinc-800">PULSAR/NET</Badge>
               <Badge variant="outline" className="text-[9px] font-mono bg-zinc-900/60 text-zinc-500 border-zinc-800">BAIT-100</Badge>
-              <Badge variant="outline" className="text-[9px] font-mono bg-zinc-900/60 text-zinc-500 border-zinc-800">NEXUS-OS</Badge>
+              <Badge variant="outline" className="text-[9px] font-mono bg-zinc-900/60 text-zinc-500 border-zinc-800">.aipkg</Badge>
+              <Badge variant="outline" className="text-[9px] font-mono bg-zinc-900/60 text-zinc-500 border-zinc-800">WASM32-WASI</Badge>
             </div>
 
             {/* Go Live status */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 md:justify-end">
               {connected ? (
-                <>
-                  <motion.span className="w-2 h-2 rounded-full bg-emerald-400" animate={{ opacity: [1, 0.3, 1] }} transition={{ duration: 2, repeat: Infinity }} />
-                  <span className="text-[10px] font-mono text-emerald-400">Pulsar SSE Connected</span>
-                </>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                      <motion.span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse-ring" />
+                      <span className="text-[10px] font-mono text-emerald-400">Pulsar SSE • Go Live</span>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-[10px] bg-zinc-900 border-zinc-800">Pulsar Energy streaming at 3s cadence</TooltipContent>
+                </Tooltip>
               ) : (
-                <>
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-900/60 border border-zinc-800">
                   <WifiOff className="w-3.5 h-3.5 text-zinc-600" />
-                  <span className="text-[10px] font-mono text-zinc-600">Pulsar Offline</span>
-                </>
+                  <span className="text-[10px] font-mono text-zinc-600">Pulsar Reconnecting...</span>
+                </div>
               )}
             </div>
           </div>
@@ -1179,6 +1274,7 @@ export default function Home() {
       <CartPanel />
       <ProductDetail product={selectedProduct} open={!!selectedProduct} onClose={() => setSelectedProduct(null)} />
       <DashboardSheet open={dashboardOpen} onOpenChange={setDashboardOpen} />
+      <ScrollToTopButton />
     </div>
   )
 }

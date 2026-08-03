@@ -1,0 +1,26 @@
+version: "3.8"
+
+services:
+  ai-store:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-store-nexus
+    ports:
+      - "3000:3000"
+    volumes:
+      - store-db:/app/db
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=file:/app/db/custom.db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  store-db:
+    driver: local

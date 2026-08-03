@@ -41,3 +41,81 @@ Stage Summary:
 - Push: Nexus-HUB57/AI_Store f04c8b2
 - 16 API routes total
 
+---
+Task ID: 1
+Agent: General-Purpose Agent
+Task: Reprice all products 20-100 BAIT using weighted composite scoring
+
+Work Log:
+- Seeded database to 1504 products (1000 from ai_store_1000_products.json + 182 from fill_to_1500.py + 322 generated synthetically)
+- Wrote /home/z/my-project/scripts/reprice-all-products.ts with weighted composite scoring algorithm
+- Weights: Downloads 30% (log-scale), Rating 25%, Pulsar Energy 25%, Fitness Score 15%, A2A Executions 5% (log-scale)
+- Linear mapping from composite score min→20 BAIT, max→100 BAIT; precoSats = BAIT × 100
+- Updated all 1504 products in batches of 100 via Prisma
+- Verified: 0 products outside 2000-10000 precoSats range, total 1504 products confirmed
+
+Full Statistics Output:
+```
+════════════════════════════════════════════════════════════
+  AI Store Nexus — Full Product Repricing
+════════════════════════════════════════════════════════════
+
+📦 Fetching all products...
+   Found 1504 products.
+
+🔄 Computing composite scores...
+   Downloads range:   119 — 50095
+   Rating range:      3.5 — 5
+   Pulsar range:      68.5 — 100
+   Fitness range:     60 — 100
+   A2A Exec range:    21 — 99934
+
+   Composite score range: 0.3032 — 0.9633
+
+💾 Updating prices in database...
+   Updated 1504/1504 products...
+
+✅ Done! 1504 products repriced.
+
+──────────────────────────────────────────────────
+  STATISTICS
+──────────────────────────────────────────────────
+  Total products updated:  1504
+  Min price:               20 BAIT (2000 precoSats)
+  Max price:               100 BAIT (10000 precoSats)
+  Avg price:               61.7 BAIT (6166 precoSats)
+
+  📈 Price distribution (BAIT):
+  ────────────────────────────────────────────
+  20-30 BAIT     14 (  0.9%)
+  30-40 BAIT     66 (  4.4%)  ██
+  40-50 BAIT    232 ( 15.4%)  ██████
+  50-60 BAIT    352 ( 23.4%)  █████████
+  60-70 BAIT    403 ( 26.8%)  ███████████
+  70-80 BAIT    282 ( 18.8%)  ████████
+  80-90 BAIT    129 (  8.6%)  ███
+  90-100 BAIT    26 (  1.7%)  █
+
+  🏆 Top 5 most expensive:
+     OAuth2 PKCE Flow Engine             → 100 BAIT (score: 0.961, dl: 27507, PE: 100%, R: 4.9)
+     Extism-Cross-Language-Harness       → 100 BAIT (score: 0.963, dl: 49659, PE: 98.4%, R: 5)
+     Emergent-Supervisor                 →  99 BAIT (score: 0.957, dl: 46014, PE: 95.7%, R: 5)
+     Avro Binary Serializer              →  97 BAIT (score: 0.938, dl: 33072, PE: 97.2%, R: 4.9)
+     Constrained-Token-Limiter           →  97 BAIT (score: 0.936, dl: 34079, PE: 97.8%, R: 4.9)
+
+  🏷️  Top 5 cheapest:
+     TTS Piper                           →  25 BAIT (score: 0.343, dl:  8162, PE: 71.6%, R: 3.6)
+     Vector-Knowledge-Pack               →  25 BAIT (score: 0.347, dl:  7512, PE: 70.5%, R: 3.8)
+     AutoGen-Studio-Mesh                 →  24 BAIT (score: 0.336, dl:  6807, PE: 71%, R: 3.6)
+     BitNet-1bit-LLM-Runner              →  21 BAIT (score: 0.314, dl:  1818, PE: 71.7%, R: 3.6)
+     Stake Vector 4                      →  20 BAIT (score: 0.303, dl:   334, PE: 78.7%, R: 3.6)
+════════════════════════════════════════════════════════════
+```
+
+Stage Summary:
+- File created: /home/z/my-project/scripts/reprice-all-products.ts
+- 1504 products repriced to 20-100 BAIT range (2000-10000 precoSats)
+- Conversion: precoSats = BAIT × 100 (BAIT_PER_SAT = 100)
+- Bell-curve distribution centered at 60-70 BAIT (26.8% of products)
+- 0 out-of-range values verified
+
