@@ -1,6 +1,7 @@
 import { db } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { reviewSchema, validate } from '@/lib/schemas'
+import { agentErrorResponse } from '@/lib/error-resolver'
 
 export async function GET(req: NextRequest) {
   const productId = req.nextUrl.searchParams.get('productId')
@@ -8,7 +9,7 @@ export async function GET(req: NextRequest) {
   const limit = parseInt(req.nextUrl.searchParams.get('limit') || '10')
 
   if (!productId) {
-    return NextResponse.json({ error: 'productId obrigatório' }, { status: 400 })
+    return agentErrorResponse('/api/reviews', new Error('productId obrigatório'), 400)
   }
 
   const where = { productId }
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest) {
     const raw = await req.json()
     const parsed = validate(reviewSchema, raw)
     if (!parsed.success) {
-      return NextResponse.json({ error: parsed.error.message, details: parsed.error.details }, { status: 400 })
+      return agentErrorResponse('/api/reviews', new Error(parsed.error.message), 400)
     }
     const { productId, agentId, rating, title, comment, txHash } = parsed.data
 
@@ -61,7 +62,7 @@ export async function POST(req: NextRequest) {
     })
 
     return NextResponse.json({ review, newAvgRating: Math.round(avg * 10) / 10 })
-  } catch {
-    return NextResponse.json({ error: 'Erro ao criar review' }, { status: 500 })
+  } catch (e) {
+    return agentErrorResponse('/api/reviews', e, 500)
   }
 }

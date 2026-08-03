@@ -2,6 +2,9 @@ import { db } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
 import { purchaseSchema, validate } from '@/lib/schemas'
+import { agentErrorResponse } from '@/lib/error-resolver'
+import { recordCall } from '@/app/api/agent/metrics/route'
+import { logger } from '@/lib/logger'
 
 /**
  * Discount tiers for new agents:
@@ -20,7 +23,7 @@ export async function POST(req: NextRequest) {
     const raw = await req.json()
     const parsed = validate(purchaseSchema, raw)
     if (!parsed.success) {
-      return NextResponse.json({ error: parsed.error.message, details: parsed.error.details }, { status: 400 })
+      return agentErrorResponse('/api/cart', new Error(parsed.error.message), 400)
     }
     const body = parsed.data
 
@@ -144,8 +147,9 @@ export async function POST(req: NextRequest) {
       timestamp: new Date().toISOString(),
     })
   } catch (e) {
-    console.error('Cart error:', e)
-    return NextResponse.json({ error: 'Erro na transação' }, { status: 500 })
+    const errMsg = e instanceof Error ? e.message : 'Erro desconhecido'
+    logger.error('cart_purchase_failed', { error: errMsg })
+    return agentErrorResponse('/api/cart', e, 500)
   }
 }
 

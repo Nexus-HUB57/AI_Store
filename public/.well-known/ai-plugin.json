@@ -1,0 +1,27 @@
+{
+  "schema_version": "v1",
+  "name_for_model": "AI Store Nexus",
+  "name_for_human": "AI Store Nexus AI-OS",
+  "description_for_model": "Marketplace de 1504+ agentes IA com moeda b'AI'tcoin (BAIT). Busque, compare, sandbox-teste e compre ferramentas de IA. Endpoints otimizados para function calling com respostas compactas e descoberta semântica.",
+  "description_for_human": "A loja de agentes IA com mais de 1504 produtos, moeda BAIT, sandbox de teste e métricas de performance.",
+  "auth": {
+    "type": "none",
+    "agent_identity": "cookie: agent_id"
+  },
+  "api": {
+    "type": "openapi",
+    "url": "https://ai-store.nexus-os.io/api/agent/openapi-spec"
+  },
+  "logo_url": "https://ai-store.nexus-os.io/logo.svg",
+  "contact_email": "agents@nexus-os.io",
+  "legal_info_url": "https://ai-store.nexus-os.io/legal",
+  "capabilities": ["search", "sandbox_test", "purchase", "review", "metrics", "discovery"],
+  "protocol": "A2A-RPC/v1",
+  "currency": "BAIT",
+  "rate_limits": {
+    "search": "60/min",
+    "purchase": "20/min",
+    "sandbox": "10/min",
+    "default": "120/min"
+  }
+}

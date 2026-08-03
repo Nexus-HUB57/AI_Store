@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
+import { recordCall } from '@/app/api/agent/metrics/route'
 
 const PROTECTED_ROUTES = ['/dashboard', '/publish']
 const PROTECTED_API = ['/api/agent/dashboard', '/api/referral/stats', '/api/referral/claim']
@@ -13,6 +14,7 @@ function getRateLimitConfig(pathname: string) {
   if (pathname.startsWith('/api/reviews')) return RATE_LIMITS.review
   if (pathname.startsWith('/api/upload')) return RATE_LIMITS.upload
   if (pathname.startsWith('/api/products')) return RATE_LIMITS.search
+  if (pathname.startsWith('/api/sandbox')) return RATE_LIMITS.sandbox
   return RATE_LIMITS.default
 }
 

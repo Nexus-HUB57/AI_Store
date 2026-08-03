@@ -25,6 +25,11 @@ export async function GET() {
         pulsar_sse: 'active',
         baitcoin_mainnet: 'simulated',
         bait_sdk: 'v1-simulated',
+        sandbox: 'active',
+        reputation_engine: 'active',
+        error_resolver: 'active',
+        agent_metrics: 'active',
+        api_discovery: 'active',
       },
       counts: {
         products: productCount,

@@ -65,4 +65,5 @@ export const RATE_LIMITS = {
   review: { limit: 15, windowMs: 60000 },        // 15 req/min
   upload: { limit: 5, windowMs: 60000 },         // 5 req/min
   search: { limit: 60, windowMs: 60000 },        // 60 req/min
+  sandbox: { limit: 10, windowMs: 60000 },       // 10 req/min
 } as const
