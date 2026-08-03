@@ -1,24 +1,25 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Separator } from '@/components/ui/separator'
 import {
   ShoppingCart,
   X,
   Coins,
   CheckCircle2,
-  ExternalLink,
   Trash2,
   Zap,
   ArrowRight,
   Wifi,
   WifiOff,
+  Gift,
+  Percent,
 } from 'lucide-react'
 import { useCartStore } from '@/lib/cart-store'
+import { useAuthStore } from '@/lib/auth-store'
 import { usePulsarSSE } from '@/hooks/use-pulsar-sse'
 
 const SEGMENT_COLORS: Record<string, string> = {
@@ -30,7 +31,24 @@ const SEGMENT_COLORS: Record<string, string> = {
   IN_APP_PRODUCTS: 'bg-fuchsia-500/15 text-fuchsia-400',
 }
 
-function PurchaseSuccess({ txId, total, remaining }: { txId: string; total: number; remaining: number }) {
+interface PurchaseItemResult {
+  id: string; nome: string; precoSats: number
+  originalPrice: number; discountAmount: number; chargedPrice: number
+  tier: string; tierLabel: string
+}
+
+function getDiscountForPosition(purchaseCount: number): { tier: string; percent: number; label: string } {
+  if (purchaseCount < 3) return { tier: 'free', percent: 100, label: 'GRÁTIS' }
+  if (purchaseCount < 50) return { tier: 'half', percent: 50, label: '-50%' }
+  return { tier: 'none', percent: 0, label: '' }
+}
+
+function PurchaseSuccess({ txId, items, totalDiscount, totalCharged, remaining }: {
+  txId: string; items: PurchaseItemResult[]; totalDiscount: number; totalCharged: number; remaining: number
+}) {
+  const freeCount = items.filter(i => i.tier === 'free').length
+  const halfCount = items.filter(i => i.tier === 'half').length
+
   return (
     <div className="flex flex-col items-center justify-center py-8 gap-4 text-center">
       <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center">
@@ -40,8 +58,18 @@ function PurchaseSuccess({ txId, total, remaining }: { txId: string; total: numb
         <h3 className="font-semibold text-emerald-400 mb-1">Transação Confirmada</h3>
         <p className="text-xs text-zinc-400 font-mono">TX: {txId}</p>
       </div>
+      {totalDiscount > 0 && (
+        <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-center">
+          <p className="text-xs text-amber-400 font-semibold mb-1">
+            {freeCount > 0 && `${freeCount} produto${freeCount > 1 ? 's' : ''} GRÁTIS`}
+            {freeCount > 0 && halfCount > 0 && ' + '}
+            {halfCount > 0 && `${halfCount} com 50% OFF`}
+          </p>
+          <p className="text-lg font-bold font-mono text-amber-300">-{totalDiscount.toLocaleString()} sats</p>
+        </div>
+      )}
       <div className="text-sm text-zinc-300">
-        <p>{total.toLocaleString()} sats debitados</p>
+        <p>Total pago: {totalCharged.toLocaleString()} sats</p>
         <p className="text-xs text-zinc-500 mt-1">Saldo restante: {remaining.toLocaleString()} sats</p>
       </div>
       <p className="text-[10px] text-zinc-600 font-mono">b&apos;AI&apos;tcoin Mainnet • A2A-RPC Settlement</p>
@@ -50,36 +78,76 @@ function PurchaseSuccess({ txId, total, remaining }: { txId: string; total: numb
 }
 
 export function CartPanel() {
-  const {
-    items,
-    isOpen,
-    setCartOpen,
-    removeItem,
-    clearCart,
-    totalSats,
-    purchase,
-    balance,
-  } = useCartStore()
-
+  const { items, isOpen, setCartOpen, removeItem, clearCart, totalSats } = useCartStore()
+  const { agent, isAuthenticated, updateBalance, incrementPurchases, refreshAgent } = useAuthStore()
   const { connected, updates } = usePulsarSSE()
+
   const [purchaseResult, setPurchaseResult] = useState<{
-    success: boolean
-    txId: string
-    remaining: number
+    txId: string; items: PurchaseItemResult[]; totalDiscount: number; totalCharged: number; remaining: number
   } | null>(null)
   const [purchasing, setPurchasing] = useState(false)
 
+  const balance = isAuthenticated && agent ? agent.balanceSats : 500000
+  const purchaseCount = isAuthenticated && agent ? agent.purchaseCount : 0
+
+  // Calculate discount preview per item
+  const itemsWithDiscount = items.map((item, idx) => {
+    const pos = purchaseCount + idx
+    const d = getDiscountForPosition(pos)
+    return {
+      ...item,
+      discountTier: d,
+      chargedPrice: item.precoSats - Math.floor(item.precoSats * (d.percent / 100)),
+    }
+  })
+
+  const totalOriginal = items.reduce((s, i) => s + i.precoSats, 0)
+  const totalDiscount = itemsWithDiscount.reduce((s, i) => s + (i.precoSats - i.chargedPrice), 0)
+  const totalCharged = itemsWithDiscount.reduce((s, i) => s + i.chargedPrice, 0)
+
   const handlePurchase = async () => {
+    if (!isAuthenticated || !agent) return
     setPurchasing(true)
-    const result = purchase()
-    if (result.success) {
-      setPurchaseResult(result)
-      setTimeout(() => setPurchaseResult(null), 8000)
+
+    try {
+      const res = await fetch('/api/cart', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: items.map(i => ({ id: i.id, nome: i.nome, precoSats: i.precoSats })),
+          totalSats: totalOriginal,
+          agentId: agent.id,
+          discountTotal: totalDiscount,
+        }),
+      })
+      const data = await res.json()
+
+      if (data.success) {
+        setPurchaseResult({
+          txId: data.txId,
+          items: data.items,
+          totalDiscount: data.totalDiscount,
+          totalCharged: data.totalCharged,
+          remaining: data.newBalance,
+        })
+        updateBalance(-data.totalCharged)
+        incrementPurchases(items.length)
+        useCartStore.getState().clearCart()
+        await refreshAgent()
+        setTimeout(() => setPurchaseResult(null), 10000)
+      }
+    } catch (e) {
+      console.error('Purchase failed:', e)
     }
     setPurchasing(false)
   }
 
   const latestPulsar = updates.length > 0 ? updates[0] : null
+  const canAfford = totalCharged <= balance
+
+  // Discount tier summary
+  const freeRemaining = Math.max(0, 3 - purchaseCount)
+  const halfRemaining = Math.max(0, 50 - purchaseCount) - freeRemaining
 
   return (
     <>
@@ -138,11 +206,13 @@ export function CartPanel() {
             </div>
           </SheetHeader>
 
-          {purchaseResult?.success ? (
+          {purchaseResult?.txId ? (
             <div className="flex-1">
               <PurchaseSuccess
                 txId={purchaseResult.txId}
-                total={totalSats()}
+                items={purchaseResult.items}
+                totalDiscount={purchaseResult.totalDiscount}
+                totalCharged={purchaseResult.totalCharged}
                 remaining={purchaseResult.remaining}
               />
             </div>
@@ -158,9 +228,27 @@ export function CartPanel() {
             </div>
           ) : (
             <>
+              {/* Discount Tier Banner */}
+              {isAuthenticated && (freeRemaining > 0 || halfRemaining > 0) && (
+                <div className="mx-4 mt-3 p-3 rounded-xl bg-gradient-to-r from-amber-500/10 via-emerald-500/10 to-cyan-500/10 border border-amber-500/20">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Gift className="w-4 h-4 text-amber-400" />
+                    <span className="text-xs font-semibold text-amber-300">Promoção de Boas-Vindas</span>
+                  </div>
+                  <div className="flex gap-3 text-[10px]">
+                    {freeRemaining > 0 && (
+                      <span className="text-emerald-400 font-mono">{freeRemaining}x GRÁTIS</span>
+                    )}
+                    {halfRemaining > 0 && (
+                      <span className="text-cyan-400 font-mono">{halfRemaining}x com -50%</span>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <ScrollArea className="flex-1 p-4">
                 <div className="space-y-3">
-                  {items.map((item) => (
+                  {itemsWithDiscount.map((item, idx) => (
                     <div
                       key={item.id}
                       className="flex items-center gap-3 p-3 rounded-xl bg-zinc-900/60 border border-white/5"
@@ -177,15 +265,31 @@ export function CartPanel() {
                           >
                             {item.segmento.replace(/_/g, ' ')}
                           </Badge>
-                          <span className="text-[10px] text-zinc-500 font-mono">
-                            v{item.version}
-                          </span>
+                          <span className="text-[10px] text-zinc-500 font-mono">v{item.version}</span>
                         </div>
                       </div>
                       <div className="flex flex-col items-end gap-1 shrink-0">
-                        <span className="text-sm font-mono text-emerald-400">
-                          {item.precoSats.toLocaleString()} sats
-                        </span>
+                        {item.discountTier.label && (
+                          <Badge className={`text-[9px] px-1.5 ${
+                            item.discountTier.tier === 'free'
+                              ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                              : 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
+                          }`}>
+                            {item.discountTier.label}
+                          </Badge>
+                        )}
+                        <div className="flex items-center gap-1.5">
+                          {item.discountTier.percent > 0 && (
+                            <span className="text-[10px] text-zinc-500 line-through font-mono">
+                              {item.precoSats.toLocaleString()}
+                            </span>
+                          )}
+                          <span className={`text-sm font-mono ${
+                            item.discountTier.tier === 'free' ? 'text-emerald-400' : 'text-emerald-400'
+                          }`}>
+                            {item.chargedPrice === 0 ? 'GRÁTIS' : item.chargedPrice.toLocaleString() + ' sats'}
+                          </span>
+                        </div>
                         <button
                           onClick={() => removeItem(item.id)}
                           className="text-zinc-600 hover:text-rose-400 transition-colors"
@@ -199,14 +303,33 @@ export function CartPanel() {
               </ScrollArea>
 
               <div className="p-4 border-t border-white/10 space-y-3 shrink-0">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-zinc-400">Total ({items.length} itens)</span>
-                  <span className="text-lg font-bold font-mono text-emerald-400">
-                    {totalSats().toLocaleString()} sats
-                  </span>
+                {/* Price Summary */}
+                <div className="space-y-1.5 text-xs">
+                  <div className="flex justify-between text-zinc-400">
+                    <span>Subtotal ({items.length} itens)</span>
+                    <span className="font-mono">{totalOriginal.toLocaleString()} sats</span>
+                  </div>
+                  {totalDiscount > 0 && (
+                    <div className="flex justify-between text-amber-400">
+                      <span className="flex items-center gap-1"><Percent className="w-3 h-3" /> Desconto Nexus</span>
+                      <span className="font-mono">-{totalDiscount.toLocaleString()} sats</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-base font-bold pt-1 border-t border-white/5">
+                    <span className="text-zinc-200">Total</span>
+                    <span className="font-mono text-emerald-400">
+                      {totalCharged === 0 ? 'GRÁTIS' : totalCharged.toLocaleString() + ' sats'}
+                    </span>
+                  </div>
                 </div>
 
-                {totalSats() > balance && (
+                {!isAuthenticated && (
+                  <p className="text-xs text-amber-400 text-center">
+                    Conecte sua wallet para comprar com desconto
+                  </p>
+                )}
+
+                {!canAfford && isAuthenticated && (
                   <p className="text-xs text-rose-400 text-center">
                     Saldo insuficiente para esta transação
                   </p>
@@ -222,7 +345,7 @@ export function CartPanel() {
                   </Button>
                   <Button
                     className="flex-1 bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white disabled:opacity-50"
-                    disabled={purchasing || totalSats() > balance}
+                    disabled={purchasing || !canAfford}
                     onClick={handlePurchase}
                   >
                     {purchasing ? (
@@ -230,7 +353,7 @@ export function CartPanel() {
                     ) : (
                       <>
                         <Zap className="w-4 h-4 mr-1" />
-                        Comprar bAI
+                        {totalCharged === 0 ? 'Resgatar Grátis' : `Pagar ${totalCharged.toLocaleString()}`}
                         <ArrowRight className="w-4 h-4 ml-1" />
                       </>
                     )}

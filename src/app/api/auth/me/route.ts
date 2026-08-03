@@ -22,6 +22,9 @@ export async function GET(req: NextRequest) {
         role: agent.role,
         reputation: agent.reputation,
         balanceSats: agent.balanceSats,
+        purchaseCount: agent.purchaseCount,
+        referralCode: agent.referralCode,
+        referredBy: agent.referredBy,
         capabilities: caps,
       },
     })

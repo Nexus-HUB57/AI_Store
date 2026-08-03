@@ -42,12 +42,15 @@ import {
   Wifi,
   WifiOff,
   Radio,
+  Gift,
+  X,
 } from 'lucide-react'
 import { CartPanel } from '@/components/store/cart-panel'
 import { UploadAipkgDialog } from '@/components/store/upload-aipkg-dialog'
 import { LoginDialog } from '@/components/auth/login-dialog'
 import { usePulsarSSE } from '@/hooks/use-pulsar-sse'
 import { useCartStore } from '@/lib/cart-store'
+import { useAuthStore } from '@/lib/auth-store'
 import { useRouter } from 'next/navigation'
 
 interface Product {
@@ -122,7 +125,14 @@ function PulsarBar({ value, productId, liveUpdates }: { value: number; productId
   )
 }
 
-function ProductCard({ product, onClick }: { product: Product; onClick: () => void }) {
+function getDiscountBadge(purchaseCount: number, idx: number): { label: string; color: string } | null {
+  const pos = purchaseCount + idx
+  if (pos < 3) return { label: 'GRÁTIS', color: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' }
+  if (pos < 50) return { label: '-50%', color: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30' }
+  return null
+}
+
+function ProductCard({ product, onClick, discountBadge }: { product: Product; onClick: () => void; discountBadge?: { label: string; color: string } | null }) {
   const addItem = useCartStore((s) => s.addItem)
   const items = useCartStore((s) => s.items)
   const inCart = items.some((i) => i.id === product.id)
@@ -192,9 +202,29 @@ function ProductCard({ product, onClick }: { product: Product; onClick: () => vo
           </div>
 
           <div className="flex items-center justify-between pt-1 border-t border-white/5">
-            <span className="text-xs font-mono text-emerald-400">
-              {product.precoSats.toLocaleString()} sats
-            </span>
+            <div className="flex items-center gap-1.5">
+              {discountBadge ? (
+                <>
+                  <span className="text-[10px] font-mono text-emerald-400 line-through text-zinc-500">
+                    {product.precoSats.toLocaleString()} sats
+                  </span>
+                  <Badge className={`text-[8px] px-1 py-0 border ${discountBadge.color}`}>
+                    {discountBadge.label}
+                  </Badge>
+                  {discountBadge.label === 'GRÁTIS' ? (
+                    <span className="text-xs font-mono text-emerald-400">0 sats</span>
+                  ) : (
+                    <span className="text-xs font-mono text-emerald-400">
+                      {Math.floor(product.precoSats / 2).toLocaleString()} sats
+                    </span>
+                  )}
+                </>
+              ) : (
+                <span className="text-xs font-mono text-emerald-400">
+                  {product.precoSats.toLocaleString()} sats
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-1">
               <Button
                 size="sm"
@@ -335,7 +365,23 @@ export default function Home() {
 
   const { connected, updates } = usePulsarSSE()
   const cartCount = useCartStore((s) => s.items.length)
+  const { agent, isAuthenticated, isNewUser } = useAuthStore()
+  const [showBonusBanner, setShowBonusBanner] = useState(false)
   const router = useRouter()
+
+  // Show bonus banner for new users
+  useEffect(() => {
+    if (isNewUser) {
+      setShowBonusBanner(true)
+      const t = setTimeout(() => setShowBonusBanner(false), 8000)
+      return () => clearTimeout(t)
+    }
+  }, [isNewUser])
+
+  // Show discount banner for authenticated users with remaining free/discounted purchases
+  const freeRemaining = isAuthenticated && agent ? Math.max(0, 3 - agent.purchaseCount) : 0
+  const halfRemaining = isAuthenticated && agent ? Math.max(0, 50 - agent.purchaseCount) - freeRemaining : 0
+  const showPromoBanner = isAuthenticated && (freeRemaining > 0 || halfRemaining > 0)
 
   // Process pulsar SSE updates
   useEffect(() => {
@@ -548,6 +594,64 @@ export default function Home() {
           </div>
         </div>
 
+        {/* Signup Bonus Banner */}
+        {showBonusBanner && (
+          <div className="mb-4 p-4 rounded-2xl bg-gradient-to-r from-amber-500/15 via-emerald-500/15 to-cyan-500/15 border border-amber-500/30 relative">
+            <button
+              onClick={() => setShowBonusBanner(false)}
+              className="absolute top-2 right-2 text-zinc-500 hover:text-zinc-300"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
+                <Gift className="w-6 h-6 text-amber-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-amber-300">+100 BAIT Tokens de Boas-Vindas!</h3>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Seus 100 tokens BAIT foram creditados na sua wallet. Os 3 primeiros produtos são GRÁTIS e do 4o ao 50o com 50% OFF!
+                </p>
+                <p className="text-[10px] text-emerald-400 font-mono mt-1">
+                  Indique amigos e ganhe +25 BAIT por indicação
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Active Promo Banner for authenticated users */}
+        {showPromoBanner && !showBonusBanner && (
+          <div className="mb-4 p-3 rounded-xl bg-gradient-to-r from-emerald-500/10 to-cyan-500/10 border border-emerald-500/20">
+            <div className="flex items-center gap-2">
+              <Gift className="w-4 h-4 text-emerald-400 shrink-0" />
+              <div className="flex items-center gap-3 text-[11px]">
+                {freeRemaining > 0 && (
+                  <span className="text-emerald-400 font-semibold">{freeRemaining}x GRÁTIS</span>
+                )}
+                {freeRemaining > 0 && halfRemaining > 0 && <span className="text-zinc-600">|</span>}
+                {halfRemaining > 0 && (
+                  <span className="text-cyan-400 font-semibold">{halfRemaining}x com -50%</span>
+                )}
+                <span className="text-zinc-500 font-mono">({agent?.purchaseCount || 0}/50 usados)</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Unauthenticated Promo Banner */}
+        {!isAuthenticated && (
+          <div className="mb-4 p-3 rounded-xl bg-gradient-to-r from-amber-500/10 via-emerald-500/10 to-cyan-500/10 border border-white/5">
+            <div className="flex items-center gap-2">
+              <Gift className="w-4 h-4 text-amber-400 shrink-0" />
+              <p className="text-[11px] text-zinc-400">
+                <span className="text-amber-300 font-semibold">Cadastre-se e ganhe 100 BAIT!</span>{' '}
+                Os 3 primeiros produtos são GRÁTIS + 50% OFF do 4o ao 50o produto.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Featured Banner (only on first page without filters) */}
         {showFeatured && !search && !segmento && page === 1 && (
           <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-cyan-500/10 to-violet-500/10 border border-white/10">
@@ -590,11 +694,12 @@ export default function Home() {
         ) : (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {products.map((product) => (
+              {products.map((product, idx) => (
                 <ProductCard
                   key={product.id}
                   product={product}
                   onClick={() => router.push(`/product/${product.slug}`)}
+                  discountBadge={isAuthenticated ? getDiscountBadge(agent?.purchaseCount || 0, idx) : null}
                 />
               ))}
             </div>

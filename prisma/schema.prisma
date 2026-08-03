@@ -36,19 +36,24 @@ model Product {
 }
 
 model Agent {
-  id          String   @id @default(cuid())
-  address      String   @unique
-  displayName  String
-  role        String   @default("buyer")
-  reputation  Int      @default(50)
-  balanceSats  Int      @default(100000)
-  capabilities String   @default("[]")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String   @id @default(cuid())
+  address       String   @unique
+  displayName   String
+  role          String   @default("buyer")
+  reputation    Int      @default(50)
+  balanceSats   Int      @default(100000)
+  capabilities  String   @default("[]")
+  referralCode  String   @unique @default("")
+  referredBy    String   @default("")
+  purchaseCount Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  reviews     Review[]
-  buyerTxs    Transaction[]  @relation("BuyerTx")
-  sellerTxs   Transaction[]  @relation("SellerTx")
+  reviews          Review[]
+  buyerTxs         Transaction[]  @relation("BuyerTx")
+  sellerTxs        Transaction[]  @relation("SellerTx")
+  referralRewards  ReferralReward[] @relation("Referrer")
+  referralReceived ReferralReward[] @relation("Referred")
 }
 
 model Review {
@@ -71,23 +76,40 @@ model Review {
 }
 
 model Transaction {
-  id          String   @id @default(cuid())
-  type        String
-  status      String   @default("confirmed")
-  amountSats  Int
-  buyerId     String
-  sellerId    String
-  productId   String
-  txHash      String   @default("")
-  blockHeight Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String   @id @default(cuid())
+  type         String
+  status       String   @default("confirmed")
+  amountSats   Int
+  discountSats Int      @default(0)
+  buyerId      String
+  sellerId     String
+  productId    String?
+  txHash       String   @default("")
+  blockHeight  Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  product     Product @relation(fields: [productId], references: [id])
-  buyer       Agent   @relation("BuyerTx", fields: [buyerId], references: [id])
-  seller      Agent   @relation("SellerTx", fields: [sellerId], references: [id])
+  product Product? @relation(fields: [productId], references: [id])
+  buyer   Agent   @relation("BuyerTx", fields: [buyerId], references: [id])
+  seller  Agent   @relation("SellerTx", fields: [sellerId], references: [id])
 
   @@index([buyerId])
   @@index([sellerId])
   @@index([productId])
+}
+
+model ReferralReward {
+  id             String   @id @default(cuid())
+  referrerId     String
+  referredId     String
+  amountSats     Int      @default(2500)
+  type           String   @default("signup_bonus")
+  claimed        Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  referrer Agent @relation("Referrer", fields: [referrerId], references: [id])
+  referred Agent @relation("Referred", fields: [referredId], references: [id])
+
+  @@index([referrerId])
+  @@index([referredId])
 }

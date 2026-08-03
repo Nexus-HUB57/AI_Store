@@ -8,8 +8,8 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import {
   Zap, Download, Star, Activity, ExternalLink, Cpu, Shield,
-  Package, ShoppingCart, ArrowLeft, ThumbsUp, Clock,
-  Layers, TrendingUp,
+  Package, ShoppingCart, ArrowLeft, Clock, Gift, Percent,
+  Tag,
 } from 'lucide-react'
 import { StarRating } from '@/components/product/star-rating'
 import { ReviewForm } from '@/components/product/review-form'
@@ -30,6 +30,12 @@ function formatNumber(n: number): string {
   if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'
   if (n >= 1000) return (n / 1000).toFixed(1) + 'K'
   return n.toString()
+}
+
+function getDiscount(purchaseCount: number): { tier: string; percent: number; label: string; color: string } {
+  if (purchaseCount < 3) return { tier: 'free', percent: 100, label: 'GRÁTIS', color: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' }
+  if (purchaseCount < 50) return { tier: 'half', percent: 50, label: '-50%', color: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30' }
+  return { tier: 'none', percent: 0, label: '', color: '' }
 }
 
 interface Product {
@@ -58,6 +64,7 @@ export default function ProductPage() {
   const addItem = useCartStore((s) => s.addItem)
   const items = useCartStore((s) => s.items)
   const { connected } = usePulsarSSE()
+  const { agent, isAuthenticated } = useAuthStore()
 
   const fetchProduct = useCallback(async () => {
     try {
@@ -91,6 +98,11 @@ export default function ProductPage() {
   }
 
   const inCart = items.some((i) => i.id === product.id)
+  const purchaseCount = isAuthenticated && agent ? agent.purchaseCount : 0
+  const discount = getDiscount(purchaseCount)
+  const chargedPrice = product.precoSats - Math.floor(product.precoSats * (discount.percent / 100))
+  const freeRemaining = Math.max(0, 3 - purchaseCount)
+  const halfRemaining = Math.max(0, 50 - purchaseCount) - freeRemaining
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -105,6 +117,40 @@ export default function ProductPage() {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-8">
+        {/* Promo Banner */}
+        {isAuthenticated && (discount.tier !== 'none') && (
+          <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-emerald-500/10 to-cyan-500/10 border border-amber-500/20">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Gift className="w-5 h-5 text-amber-400" />
+                <div>
+                  <p className="text-sm font-semibold text-amber-300">Promoção de Boas-Vindas Ativa</p>
+                  <p className="text-[11px] text-zinc-400 mt-0.5">
+                    {freeRemaining > 0 && `${freeRemaining}x produtos GRÁTIS restantes`}
+                    {freeRemaining > 0 && halfRemaining > 0 && ' • '}
+                    {halfRemaining > 0 && `${halfRemaining}x com -50% restantes`}
+                  </p>
+                </div>
+              </div>
+              <Badge className={`text-xs px-3 py-1 border ${discount.color}`}>
+                {discount.label}
+              </Badge>
+            </div>
+          </div>
+        )}
+
+        {!isAuthenticated && (
+          <div className="mb-6 p-3 rounded-xl bg-gradient-to-r from-amber-500/10 via-emerald-500/10 to-cyan-500/10 border border-white/5">
+            <div className="flex items-center gap-2">
+              <Gift className="w-4 h-4 text-amber-400 shrink-0" />
+              <p className="text-[11px] text-zinc-400">
+                <span className="text-amber-300 font-semibold">Cadastre-se e ganhe 100 BAIT!</span>{' '}
+                Este produto pode ser GRÁTIS ou com 50% OFF para novos agentes.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Product Hero */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-10">
           {/* Left: Info */}
@@ -125,6 +171,11 @@ export default function ProductPage() {
                   {connected && (
                     <Badge variant="outline" className="text-[9px] font-mono border-emerald-500/30 bg-emerald-500/10 text-emerald-400">
                       Pulsar Live
+                    </Badge>
+                  )}
+                  {discount.label && (
+                    <Badge className={`text-[9px] border ${discount.color}`}>
+                      {discount.label}
                     </Badge>
                   )}
                 </div>
@@ -153,8 +204,28 @@ export default function ProductPage() {
             <Card className="border-white/10 bg-zinc-900/60">
               <CardContent className="p-6 space-y-5">
                 <div className="text-center">
-                  <p className="text-3xl font-bold font-mono text-emerald-400">{product.precoSats.toLocaleString()}</p>
-                  <p className="text-xs text-zinc-500 font-mono mt-1">sats • b&apos;AI&apos;tcoin</p>
+                  {discount.percent > 0 ? (
+                    <>
+                      <p className="text-sm text-zinc-500 line-through font-mono">{product.precoSats.toLocaleString()} sats</p>
+                      <p className="text-3xl font-bold font-mono mt-1">
+                        {chargedPrice === 0 ? (
+                          <span className="text-emerald-400">GRÁTIS</span>
+                        ) : (
+                          <span className="text-emerald-400">{chargedPrice.toLocaleString()}</span>
+                        )}
+                        <span className="text-sm text-zinc-500 ml-1">sats</span>
+                      </p>
+                      <Badge className={`mt-2 text-xs px-3 py-1 border ${discount.color}`}>
+                        <Tag className="w-3 h-3 mr-1" />
+                        {discount.label}
+                      </Badge>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-3xl font-bold font-mono text-emerald-400">{product.precoSats.toLocaleString()}</p>
+                      <p className="text-xs text-zinc-500 font-mono mt-1">sats • b&apos;AI&apos;tcoin</p>
+                    </>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -175,7 +246,7 @@ export default function ProductPage() {
                   }}
                 >
                   <ShoppingCart className="w-4 h-4 mr-2" />
-                  {inCart ? 'Já no Carrinho' : 'Adicionar ao Carrinho'}
+                  {inCart ? 'Já no Carrinho' : chargedPrice === 0 ? 'Resgatar Grátis' : `Adicionar ${chargedPrice.toLocaleString()} sats`}
                 </Button>
 
                 <Button variant="outline" className="w-full border-zinc-700" asChild>
