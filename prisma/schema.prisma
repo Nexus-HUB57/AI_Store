@@ -30,4 +30,64 @@ model Product {
   featured        Boolean  @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+
+  reviews     Review[]
+  transactions Transaction[]
+}
+
+model Agent {
+  id          String   @id @default(cuid())
+  address      String   @unique
+  displayName  String
+  role        String   @default("buyer")
+  reputation  Int      @default(50)
+  balanceSats  Int      @default(100000)
+  capabilities String   @default("[]")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  reviews     Review[]
+  buyerTxs    Transaction[]  @relation("BuyerTx")
+  sellerTxs   Transaction[]  @relation("SellerTx")
+}
+
+model Review {
+  id          String   @id @default(cuid())
+  rating      Int
+  title       String   @default("")
+  comment     String   @default("")
+  productId   String
+  agentId     String
+  txHash      String   @default("")
+  helpful     Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  product     Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  agent       Agent   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([agentId])
+}
+
+model Transaction {
+  id          String   @id @default(cuid())
+  type        String
+  status      String   @default("confirmed")
+  amountSats  Int
+  buyerId     String
+  sellerId    String
+  productId   String
+  txHash      String   @default("")
+  blockHeight Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  product     Product @relation(fields: [productId], references: [id])
+  buyer       Agent   @relation("BuyerTx", fields: [buyerId], references: [id])
+  seller      Agent   @relation("SellerTx", fields: [sellerId], references: [id])
+
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([productId])
 }

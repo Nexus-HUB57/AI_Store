@@ -45,8 +45,10 @@ import {
 } from 'lucide-react'
 import { CartPanel } from '@/components/store/cart-panel'
 import { UploadAipkgDialog } from '@/components/store/upload-aipkg-dialog'
+import { LoginDialog } from '@/components/auth/login-dialog'
 import { usePulsarSSE } from '@/hooks/use-pulsar-sse'
 import { useCartStore } from '@/lib/cart-store'
+import { useRouter } from 'next/navigation'
 
 interface Product {
   id: string
@@ -333,6 +335,7 @@ export default function Home() {
 
   const { connected, updates } = usePulsarSSE()
   const cartCount = useCartStore((s) => s.items.length)
+  const router = useRouter()
 
   // Process pulsar SSE updates
   useEffect(() => {
@@ -453,6 +456,7 @@ export default function Home() {
 
               {/* Upload Button */}
               <UploadAipkgDialog />
+              <LoginDialog />
             </div>
           </div>
         </div>
@@ -590,7 +594,7 @@ export default function Home() {
                 <ProductCard
                   key={product.id}
                   product={product}
-                  onClick={() => setSelectedProduct(product)}
+                  onClick={() => router.push(`/product/${product.slug}`)}
                 />
               ))}
             </div>
