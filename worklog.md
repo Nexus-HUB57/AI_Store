@@ -69,3 +69,56 @@ Stage Summary:
 - Commit: d880a47 pushed to main
 - Cart panel now uses centralized wallet-sdk for all BAIT conversions
 - Version endpoint enables deploy tracking across environments
+---
+Task ID: 9
+Agent: main
+Task: Agent UX Meaningful/Delight — Plugin Manifest, Sandbox, Reputation, Error Resolver, Compact API, Metrics
+
+Work Log:
+- Created .well-known/ai-plugin.json (OpenAI-style agent manifest)
+- Created /api/agent/openapi-spec (dynamic OpenAPI 3.0.3 with x-reliability-score)
+- Created /api/agent/discover (semantic API discovery with q, capability, limit)
+- Created /api/products/compact (tuple format, ~60% token reduction)
+- Created /api/sandbox/quick, /api/sandbox/try, /api/sandbox/status
+- Created src/lib/reputation-engine.ts (6 weighted factors, S/A/B/C/D/F grades)
+- Created src/lib/error-resolver.ts (7 error types, contextual suggestions per endpoint)
+- Created /api/agent/metrics (in-memory call tracking, p50/p95/p99 latency)
+- Enhanced middleware with sandbox rate limit, recordCall integration
+- Enhanced /api/health with 5 new services (sandbox, reputation, error_resolver, metrics, discovery)
+- Added 40 new tests (reputation-engine 23, error-resolver 17)
+- Version: 0.4.0-alpha, commit 98e841d
+
+Stage Summary:
+- Tests: 171/171 passing (9 files)
+- Build: 27 routes, 0 errors
+- Agent-facing UX: auto-discovery, sandbox trial, performance reputation, auto error correction
+---
+Task ID: 10
+Agent: main
+Task: v0.5.0-alpha — Atomic Cart, E2E Suite, Reputation Ring, 5-Stage CI, Bundle Split
+
+Work Log:
+- Enhanced POST /api/cart with idempotency key (SHA-256 dedup, client-provided or auto-generated)
+- Wrapped all cart DB writes in db.$transaction for atomicity + auto-rollback
+- Added race condition protection (re-reads balance inside transaction)
+- Added error classification (classifyError: balance=400, notFound=404, unknown=500)
+- Integrated recordCall for platform metrics on cart purchases
+- Created e2e/api-cart.spec.ts (6 tests: purchase, balance, validation, idempotency, network info, multi-item)
+- Created e2e/multi-item-checkout.spec.ts (2 tests: 3-item checkout flow, empty cart state)
+- Created src/components/store/reputation-ring.tsx (animated SVG ring with Framer Motion)
+- Updated dashboard to use ReputationRing (dynamic import, animated circular progress)
+- Enhanced CI: 5-stage DAG (test → lint+typecheck → build → docker)
+- Added ESLint + TypeScript type check stages in parallel
+- Added docker-compose validation + build summary to CI
+- Extracted Framer Motion via next/dynamic (5 components: ProductCard, StatCard, MiniStat, ScrollToTop, FeaturedProduct)
+- Created motion-wrapper.tsx as bundle-split boundary
+- page.tsx reduced from 1076 → 861 lines (-215 lines)
+- Version: 0.5.0-alpha, commit 92d1208
+
+Stage Summary:
+- Build: 29 routes, 0 errors, 171 tests passing
+- E2E: 10 tests total (8 new + 2 existing)
+- CI: 5-stage pipeline with lint + typecheck parallel gates
+- Cart: idempotent, atomic, with error classification
+- Bundle: Framer Motion split into separate chunks
+- Pushed to main: d1f6307..92d1208
