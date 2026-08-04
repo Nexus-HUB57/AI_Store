@@ -11,7 +11,7 @@ import {
   ArrowLeft, Wallet, TrendingUp, ShoppingBag, Package,
   Star, Zap, Download, Activity, Coins, BarChart3,
   ArrowUpRight, Users, Layers, Gift, Copy, Check,
-  Tag, Percent, ArrowDownRight, Crown, UserPlus,
+  Tag, Percent, ArrowDownRight, Crown, UserPlus, Shield,
 } from 'lucide-react'
 import { useAuthStore } from '@/lib/auth-store'
 
@@ -36,6 +36,17 @@ interface DashboardData {
   salesByDay: Record<string, number>
 }
 
+interface ReputationFactors {
+  purchase_reliability: number;
+  review_quality: number;
+  activity_score: number;
+  tenure: number;
+  referral_contribution: number;
+  sandbox_utilization: number;
+  overall: number;
+  grade: string;
+}
+
 interface ReferralData {
   referralCode: string
   displayName: string
@@ -53,19 +64,24 @@ export default function DashboardPage() {
   const router = useRouter()
   const [data, setData] = useState<DashboardData | null>(null)
   const [referralData, setReferralData] = useState<ReferralData | null>(null)
+  const [reputation, setReputation] = useState<ReputationFactors | null>(null)
+  const [repBadge, setRepBadge] = useState<{color:string;label:string;glow:string;grade:string} | null>(null)
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState(false)
 
   const fetchDashboard = useCallback(async () => {
     if (!agent) return
     try {
-      const [dashRes, refRes] = await Promise.all([
+      const [dashRes, refRes, repRes] = await Promise.all([
         fetch(`/api/agent/dashboard?agentId=${agent.id}`),
         fetch(`/api/referral/stats?agentId=${agent.id}`),
+        fetch(`/api/agent/reputation?agentId=${agent.id}`),
       ])
-      const [dashJson, refJson] = await Promise.all([dashRes.json(), refRes.json()])
+      const [dashJson, refJson, repJson] = await Promise.all([dashRes.json(), refRes.json(), repRes.json()])
       setData(dashJson)
       setReferralData(refJson)
+      setReputation(repJson.reputation)
+      setRepBadge(repJson.badge)
     } catch {}
     setLoading(false)
   }, [agent])
@@ -126,12 +142,36 @@ export default function DashboardPage() {
         ) : (
           <>
             {/* KPI Row */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
               <KpiCard icon={<Coins className="w-5 h-5 text-amber-400" />} label="Saldo BAIT" value={`${formatNumber(agent.balanceSats)} sats`} />
               <KpiCard icon={<ShoppingBag className="w-5 h-5 text-emerald-400" />} label="Compras" value={String(m?.totalPurchases || 0)} sub={`de ${agent.purchaseCount}/50 com desconto`} />
               <KpiCard icon={<TrendingUp className="w-5 h-5 text-cyan-400" />} label="Receita" value={`${formatNumber(m?.totalRevenue || 0)} sats`} />
               <KpiCard icon={<Package className="w-5 h-5 text-violet-400" />} label="Produtos" value={String(m?.productsListed || 0)} />
               <KpiCard icon={<Users className="w-5 h-5 text-rose-400" />} label="Indicações" value={String(referralData?.totalReferrals || 0)} sub={`+${formatNumber(referralData?.totalEarned || 0)} sats`} />
+              {repBadge && (
+                <Card className="border-white/10 bg-zinc-900/40 relative overflow-hidden">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-12 h-12 rounded-xl flex items-center justify-center text-xl font-black shrink-0"
+                        style={{
+                          backgroundColor: repBadge.color + '15',
+                          color: repBadge.color,
+                          boxShadow: repBadge.glow,
+                          border: `1px solid ${repBadge.color}30`,
+                        }}
+                      >
+                        {repBadge.grade}
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Reputação</p>
+                        <p className="text-sm font-bold" style={{ color: repBadge.color }}>{repBadge.label}</p>
+                        <p className="text-xs font-mono text-zinc-400">{reputation?.overall.toFixed(1)}/100</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
             </div>
 
             {/* Tabs */}
@@ -251,6 +291,42 @@ export default function DashboardPage() {
                         )}
                       </CardContent>
                     </Card>
+
+                    {/* Reputation Breakdown */}
+                    {reputation && (
+                      <Card className="border-white/10 bg-zinc-900/40">
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-sm flex items-center gap-2">
+                            <Shield className="w-4 h-4" style={{ color: repBadge?.color }} />
+                            Fatores de Reputação
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                          {[
+                            { key: 'purchase_reliability', label: 'Confiabilidade' },
+                            { key: 'review_quality', label: 'Qualidade Reviews' },
+                            { key: 'activity_score', label: 'Atividade' },
+                            { key: 'tenure', label: 'Antiguidade' },
+                            { key: 'referral_contribution', label: 'Indicações' },
+                            { key: 'sandbox_utilization', label: 'Sandbox' },
+                          ].map(f => {
+                            const val = reputation[f.key as keyof typeof reputation] as number
+                            const barColor = val >= 70 ? 'bg-emerald-500' : val >= 40 ? 'bg-amber-500' : 'bg-red-500'
+                            return (
+                              <div key={f.key} className="space-y-1">
+                                <div className="flex items-center justify-between text-[10px]">
+                                  <span className="text-zinc-400">{f.label}</span>
+                                  <span className="font-mono text-zinc-500">{val.toFixed(1)}%</span>
+                                </div>
+                                <div className="h-1 rounded-full bg-zinc-800 overflow-hidden">
+                                  <div className={`h-full rounded-full ${barColor} transition-all duration-500`} style={{ width: `${val}%` }} />
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </CardContent>
+                      </Card>
+                    )}
 
                     {/* Recent Sales */}
                     <Card className="border-white/10 bg-zinc-900/40">

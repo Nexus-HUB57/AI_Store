@@ -1,10 +1,10 @@
 import { db } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
-import { v4 as uuidv4 } from 'uuid'
 import { purchaseSchema, validate } from '@/lib/schemas'
 import { agentErrorResponse } from '@/lib/error-resolver'
 import { recordCall } from '@/app/api/agent/metrics/route'
 import { logger } from '@/lib/logger'
+import { baitWallet, satsToBAIT, formatSats } from '@/lib/wallet-sdk'
 
 /**
  * Discount tiers for new agents:
@@ -61,17 +61,24 @@ export async function POST(req: NextRequest) {
       currentPurchaseIdx++
     }
 
-    // Check balance
-    if (totalCharged > agent.balanceSats) {
-      return NextResponse.json({
-        error: 'Saldo insuficiente',
-        required: totalCharged,
-        balance: agent.balanceSats,
-      }, { status: 400 })
+    // Check balance via Wallet SDK
+    const balanceCheck = baitWallet.validateBalance({ balance: agent.balanceSats, amountSats: totalCharged })
+    if (!balanceCheck.sufficient) {
+      const err = new Error(`Saldo insuficiente: necessário ${totalCharged}, disponível ${agent.balanceSats}`)
+      Object.assign(err, { balance: agent.balanceSats, required: totalCharged })
+      return agentErrorResponse('/api/cart', err, 400)
     }
 
-    const txId = `bAI-${uuidv4().slice(0, 8)}-${Date.now().toString(36).toUpperCase()}`
-    const confirmations = Math.floor(Math.random() * 3) + 1
+    // Create, sign, and broadcast the main transaction via Wallet SDK
+    const tx = baitWallet.createTransaction({
+      from: agent.address,
+      to: '@nexus-genesis',
+      amountSats: totalCharged,
+      type: 'purchase',
+      metadata: { items: body.items.length, discountTier: tier },
+    })
+    const signedTx = baitWallet.signTransaction(tx)
+    const receipt = await baitWallet.broadcast(signedTx)
 
     // Find or create system seller (nexus-genesis)
     let seller = await db.agent.findFirst({ where: { address: '@nexus-genesis' } })
@@ -93,6 +100,16 @@ export async function POST(req: NextRequest) {
       const item = itemResults[i]
       const product = await db.product.findUnique({ where: { id: item.id } })
 
+      // Per-item Wallet SDK transaction
+      const itemTx = baitWallet.createTransaction({
+        from: agent.address,
+        to: '@nexus-genesis',
+        amountSats: item.chargedPrice,
+        type: 'purchase',
+        metadata: { productId: item.id, tier: item.tier },
+      })
+      const signedItemTx = baitWallet.signTransaction(itemTx)
+
       await db.transaction.create({
         data: {
           type: tier === 'free' ? 'purchase_free' : tier === 'half' ? 'purchase_discounted' : 'purchase',
@@ -102,8 +119,8 @@ export async function POST(req: NextRequest) {
           buyerId: agent.id,
           sellerId: product?.authorAgent === agent.displayName ? agent.id : seller.id,
           productId: item.id,
-          txHash: `${txId}-${i}`,
-          blockHeight: 1847293 + Math.floor(Math.random() * 100),
+          txHash: signedItemTx.txId,
+          blockHeight: receipt.blockHeight + i,
         },
       })
 
@@ -135,16 +152,19 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      txId,
+      txId: receipt.txId,
       totalOriginal: body.totalSats,
       totalDiscount: totalDiscount,
       totalCharged,
+      totalBAIT: satsToBAIT(totalCharged),
+      totalChargedFormatted: formatSats(totalCharged),
       items: itemResults,
       newBalance,
-      confirmations,
+      confirmations: receipt.confirmations,
       network: 'bAI-mainnet',
-      blockHash: `0x${Buffer.from(txId).toString('hex').slice(0, 16)}...`,
-      timestamp: new Date().toISOString(),
+      blockHash: receipt.blockHash,
+      blockHeight: receipt.blockHeight,
+      timestamp: receipt.timestamp,
     })
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : 'Erro desconhecido'
@@ -174,13 +194,15 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  const networkInfo = baitWallet.getNetworkInfo()
+
   return NextResponse.json({
-    network: 'bAI-mainnet',
-    blockHeight: 1847293,
+    network: `bAI-${networkInfo.network}`,
+    blockHeight: networkInfo.blockHeight,
     mempoolSize: 42,
-    avgFee: 1,
-    totalSupply: '21_000_000 bAI',
-    circulating: '14_302_891 bAI',
+    avgFee: networkInfo.avgFee,
+    totalSupply: networkInfo.totalSupply,
+    circulating: networkInfo.circulating,
     discountTier,
   })
 }

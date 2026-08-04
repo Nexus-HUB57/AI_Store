@@ -12,9 +12,6 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
-} from '@/components/ui/dialog'
-import {
   Search, Zap, Download, Star, Activity, ArrowUpDown,
   ChevronLeft, ChevronRight, ChevronUp, ExternalLink, Cpu, Shield,
   TrendingUp, Package, Sparkles, Layers, ShoppingCart,
@@ -30,10 +27,10 @@ import { usePulsarSSE } from '@/hooks/use-pulsar-sse'
 import { useCartStore } from '@/lib/cart-store'
 import { useAuthStore } from '@/lib/auth-store'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Separator } from '@/components/ui/separator'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import { ReviewForm } from '@/components/product/review-form'
-import { StarRating } from '@/components/product/star-rating'
+const AnimatedCounter = dynamic(() => import('@/components/store/animated-counter').then(m => ({ default: m.AnimatedCounter })), { ssr: false, loading: () => <span>...</span> })
+const ReviewList = dynamic(() => import('@/components/store/review-list').then(m => ({ default: m.ReviewList })), { ssr: false, loading: () => <div className="flex items-center justify-center py-8"><div className="w-5 h-5 border-2 border-zinc-700 border-t-emerald-500 rounded-full animate-spin" /></div> })
+const ProductDetailDialog = dynamic(() => import('@/components/store/product-detail-dialog').then(m => ({ default: m.ProductDetailDialog })), { ssr: false, loading: () => null })
 import { Progress } from '@/components/ui/progress'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -125,32 +122,6 @@ const slideUp = {
 
 const staggerContainer = {
   hidden: {}, visible: { transition: { staggerChildren: 0.04 } },
-}
-
-/* ================================================================== */
-/*  AnimatedCounter                                                    */
-/* ================================================================== */
-
-function AnimatedCounter({ target, duration = 1200, suffix = '' }: { target: number; duration?: number; suffix?: string }) {
-  const [value, setValue] = useState(0)
-  const ref = useRef<HTMLSpanElement>(null)
-  const hasAnimated = useRef(false)
-
-  useEffect(() => {
-    if (hasAnimated.current) return
-    hasAnimated.current = true
-    const start = performance.now()
-    const animate = (now: number) => {
-      const elapsed = now - start
-      const progress = Math.min(elapsed / duration, 1)
-      const eased = 1 - Math.pow(1 - progress, 3)
-      setValue(Math.floor(eased * target))
-      if (progress < 1) requestAnimationFrame(animate)
-    }
-    requestAnimationFrame(animate)
-  }, [target, duration])
-
-  return <span ref={ref}>{value.toLocaleString('pt-BR')}{suffix}</span>
 }
 
 /* ================================================================== */
@@ -289,51 +260,6 @@ function ProductCard({ product, onClick, discountBadge, index }: {
 }
 
 /* ================================================================== */
-/*  ReviewList                                                         */
-/* ================================================================== */
-
-interface ReviewData { id: string; rating: number; title: string; comment: string; agentId: string; createdAt: string; agent?: { displayName: string; address: string } }
-
-function ReviewList({ productId }: { productId: string }) {
-  const [reviews, setReviews] = useState<ReviewData[]>([])
-  const [avgRating, setAvgRating] = useState(0)
-  const [total, setTotal] = useState(0)
-  const [page, setPage] = useState(1)
-  const [refreshKey, setRefreshKey] = useState(0)
-  useEffect(() => {
-    fetch(`/api/reviews?productId=${productId}&page=${page}&limit=5`).then(r => r.json()).then(d => { setReviews(d.reviews || []); setAvgRating(d.avgRating || 0); setTotal(d.total || 0) })
-  }, [productId, page, refreshKey])
-  return (
-    <motion.div variants={slideUp} initial="hidden" animate="visible" className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Avaliações ({total})</h4>
-        <div className="flex items-center gap-1.5"><span className="text-lg font-bold text-amber-400">{avgRating}</span><StarRating value={Math.round(avgRating)} size="sm" readonly /></div>
-      </div>
-      <Separator className="bg-white/5" />
-      <ReviewForm productId={productId} onSubmitted={() => setRefreshKey(k => k + 1)} />
-      <div className="space-y-3">
-        {reviews.length === 0 && (<div className="text-center py-8"><Star className="w-8 h-8 text-zinc-700 mx-auto mb-2" /><p className="text-xs text-zinc-500">Nenhuma avaliação ainda. Seja o primeiro!</p></div>)}
-        <AnimatePresence>{reviews.map((r, i) => (
-          <motion.div key={r.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }} className="p-3 rounded-xl bg-zinc-900/60 border border-white/5 space-y-2 hover:border-white/10 transition-colors">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-emerald-500/30 to-cyan-500/30 flex items-center justify-center text-[10px] font-bold">{(r.agent?.displayName || '?').charAt(0).toUpperCase()}</div>
-                <span className="text-xs font-medium text-zinc-300">{r.agent?.displayName || 'Agente Anônimo'}</span>
-                <StarRating value={r.rating} size="sm" readonly />
-              </div>
-              <span className="text-[10px] text-zinc-600 flex items-center gap-1"><Clock className="w-3 h-3" />{timeAgo(r.createdAt)}</span>
-            </div>
-            {r.title && <p className="text-xs font-semibold text-zinc-300">{r.title}</p>}
-            {r.comment && <p className="text-[11px] text-zinc-400 leading-relaxed">{r.comment}</p>}
-          </motion.div>
-        ))}</AnimatePresence>
-      </div>
-      {total > 5 && (<div className="flex justify-center"><Button variant="ghost" size="sm" className="text-xs text-zinc-500 hover:text-zinc-300" onClick={() => setPage(p => Math.min(p + 1, Math.ceil(total / 5)))}>Ver mais avaliações</Button></div>)}
-    </motion.div>
-  )
-}
-
-/* ================================================================== */
 /*  StatCard & MiniStat                                                */
 /* ================================================================== */
 
@@ -351,148 +277,6 @@ function MiniStat({ icon, label, value, pulse, animatedValue }: { icon: React.Re
     <motion.div variants={slideUp} initial="hidden" animate="visible" whileHover={{ scale: 1.02, transition: { duration: 0.2 } }} className="flex items-center gap-3 p-3.5 rounded-xl bg-zinc-900/60 border border-white/[0.05] hover:border-white/[0.1] transition-colors">
       <div className="shrink-0">{icon}</div><div><p className="text-[10px] text-zinc-500 uppercase tracking-wider flex items-center gap-1">{label}{pulse && <motion.span className="w-1.5 h-1.5 rounded-full bg-emerald-400" animate={{ opacity: [1, 0.2, 1] }} transition={{ duration: 2, repeat: Infinity }} />}</p><p className="text-sm font-bold font-mono text-zinc-200 tabular-nums">{shouldAnimate ? <AnimatedCounter target={animatedValue} /> : value}</p></div>
     </motion.div>
-  )
-}
-
-/* ================================================================== */
-/*  ProductDetail                                                      */
-/* ================================================================== */
-
-function ProductDetail({ product, open, onClose }: { product: Product | null; open: boolean; onClose: () => void }) {
-  const addItem = useCartStore((s) => s.addItem)
-  const items = useCartStore((s) => s.items)
-  const { agent, isAuthenticated } = useAuthStore()
-  const inCart = product ? items.some((i) => i.id === product.id) : false
-  const [detailTab, setDetailTab] = useState('info')
-
-  if (!product) return null
-
-  const pc = isAuthenticated ? (agent?.purchaseCount || 0) : 999
-  const discount = getDiscountBadge(pc, 0)
-  const chargedPrice = discount?.label === 'GRÁTIS' ? 0 : discount?.label === '-50%' ? Math.floor(product.precoSats / 2) : product.precoSats
-
-  const handleAddToCart = () => {
-    if (inCart) { toast.info(`${product.iconEmoji} ${product.nome} já está no carrinho`); return }
-    addItem({ id: product.id, nome: product.nome, precoSats: product.precoSats, iconEmoji: product.iconEmoji, segmento: product.segmento, version: product.version, authorAgent: product.authorAgent })
-    toast.success(`${product.iconEmoji} Adicionado ao carrinho`, { description: `${product.nome} — ${baitLabel(chargedPrice)}` })
-  }
-
-  const platforms = product.disponibilidadeOS?.split(',').map(s => s.trim()).filter(Boolean) || []
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-2xl bg-zinc-950 border-zinc-800 text-zinc-100 max-h-[90vh] overflow-y-auto p-6">
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
-          <DialogHeader>
-            <div className="flex items-center gap-3">
-              <motion.div
-                className="text-3xl w-14 h-14 flex items-center justify-center rounded-2xl bg-gradient-to-br from-white/[0.08] to-white/[0.03] border border-white/[0.06] shrink-0"
-                whileHover={{ rotate: [0, -8, 8, 0], transition: { duration: 0.4 } }}
-              >
-                {product.iconEmoji || '📦'}
-              </motion.div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <DialogTitle className="text-lg font-bold text-zinc-100">{product.nome}</DialogTitle>
-                  <Badge variant="outline" className="text-[10px] font-mono bg-zinc-800/50 text-zinc-400 border-zinc-700">v{product.version}</Badge>
-                  {product.featured && (
-                    <Badge className="text-[9px] bg-amber-500/20 text-amber-400 border-amber-500/30">
-                      <Sparkles className="w-2.5 h-2.5 mr-0.5" />Destaque
-                    </Badge>
-                  )}
-                </div>
-                <p className="text-xs text-zinc-500 mt-0.5">por {product.authorAgent}</p>
-              </div>
-            </div>
-          </DialogHeader>
-
-          <Badge variant="outline" className={`text-[10px] mb-4 border ${SEGMENT_COLORS[product.segmento] || ''}`}>
-            {product.segmento.replace(/_/g, ' ')}
-          </Badge>
-
-          <Tabs value={detailTab} onValueChange={setDetailTab}>
-            <TabsList className="bg-zinc-900/50 border border-zinc-800">
-              <TabsTrigger value="info" className="text-xs data-[state=active]:bg-zinc-800">Info</TabsTrigger>
-              <TabsTrigger value="reviews" className="text-xs data-[state=active]:bg-zinc-800">Avaliações</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="info" className="mt-4 space-y-5">
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 }}>
-                <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">Descrição</h4>
-                <p className="text-sm text-zinc-300 leading-relaxed">{product.coreBusiness}</p>
-              </motion.div>
-
-              {product.publicoAlvoAI && (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15 }}>
-                  <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">Público-Alvo IA</h4>
-                  <p className="text-sm text-zinc-300 leading-relaxed">{product.publicoAlvoAI}</p>
-                </motion.div>
-              )}
-
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
-                <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">Preço</h4>
-                <div className="flex items-center gap-3">
-                  {discount ? (
-                    <>
-                      <span className="text-sm font-mono text-zinc-600 line-through">{toBait(product.precoSats)} BAIT</span>
-                      <Badge className={`text-[10px] border ${discount.color}`}>{discount.label}</Badge>
-                      <span className="text-lg font-bold font-mono text-emerald-400">
-                        {discount.label === 'GRÁTIS' ? '0 BAIT' : toBait(chargedPrice) + ' BAIT'}
-                      </span>
-                    </>
-                  ) : (
-                    <span className="text-lg font-bold font-mono text-emerald-400">{toBait(product.precoSats)} <span className="text-xs text-zinc-500 font-normal">BAIT</span></span>
-                  )}
-                </div>
-              </motion.div>
-
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.25 }} className="flex items-center gap-2">
-                <StarRating value={Math.round(product.rating)} readonly />
-                <span className="text-sm font-semibold text-zinc-200">{product.rating.toFixed(1)}</span>
-              </motion.div>
-
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} className="grid grid-cols-2 gap-2">
-                <StatCard icon={<Zap className="w-4 h-4 text-amber-400" />} label="Pulsar" value={product.pulsarEnergy.toFixed(0) + '%'} />
-                <StatCard icon={<Activity className="w-4 h-4 text-emerald-400" />} label="Fitness" value={product.fitnessScore.toFixed(0) + '%'} />
-                <StatCard icon={<Download className="w-4 h-4 text-cyan-400" />} label="Downloads" value={formatNumber(product.downloads)} />
-                <StatCard icon={<Package className="w-4 h-4 text-violet-400" />} label="Execuções" value={formatNumber(product.a2aExecutions)} />
-              </motion.div>
-
-              {platforms.length > 0 && (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.35 }}>
-                  <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">Plataformas</h4>
-                  <div className="flex flex-wrap gap-1.5">
-                    {platforms.map(p => (
-                      <Badge key={p} variant="outline" className="text-[10px] bg-zinc-800/50 text-zinc-400 border-zinc-700">{p}</Badge>
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-
-              <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="flex items-center gap-3 pt-2">
-                <Button
-                  onClick={handleAddToCart}
-                  className={`flex-1 ${inCart ? 'bg-cyan-600 hover:bg-cyan-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
-                >
-                  {inCart ? <><ShoppingCart className="w-4 h-4 mr-2" />No Carrinho</> : <><Plus className="w-4 h-4 mr-2" />Adicionar ao Carrinho</>}
-                </Button>
-                {product.repoGithubUrl && (
-                  <Button variant="outline" size="icon" asChild className="border-zinc-700 hover:bg-zinc-800">
-                    <a href={product.repoGithubUrl} target="_blank" rel="noopener noreferrer">
-                      <ExternalLink className="w-4 h-4" />
-                    </a>
-                  </Button>
-                )}
-              </motion.div>
-            </TabsContent>
-
-            <TabsContent value="reviews" className="mt-4">
-              <ReviewList productId={product.id} />
-            </TabsContent>
-          </Tabs>
-        </motion.div>
-      </DialogContent>
-    </Dialog>
   )
 }
 
@@ -1283,7 +1067,7 @@ export default function Home() {
 
       {/* ============ Overlays ============ */}
       <CartPanel />
-      <ProductDetail product={selectedProduct} open={!!selectedProduct} onClose={() => setSelectedProduct(null)} />
+      <ProductDetailDialog product={selectedProduct} open={!!selectedProduct} onClose={() => setSelectedProduct(null)} />
       <DashboardSheet open={dashboardOpen} onOpenChange={setDashboardOpen} />
       <ScrollToTopButton />
     </div>

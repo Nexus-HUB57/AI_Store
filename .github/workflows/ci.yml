@@ -1,94 +1,177 @@
-name: AI Store CI
+name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NEXT_TELEMETRY_DISABLED: 1
 
 jobs:
+  # ─── Stage 1: Test ───────────────────────────────────────────
   test:
+    name: Test
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    env:
+      NODE_ENV: test
+      DATABASE_URL: "file:db/test.db"
 
-      - name: Setup Node.js
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+
+      - name: Cache node_modules
+        id: cache-node-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node20-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            node-modules-${{ runner.os }}-node20-
 
       - name: Install dependencies
+        if: steps.cache-node-modules.outputs.cache-hit != 'true'
         run: npm ci
 
-      - name: Generate Prisma client
+      - name: Create test DB directory
+        run: mkdir -p db
+
+      - name: Generate Prisma Client
         run: npx prisma generate
 
-      - name: Run tests
+      - name: Push database schema
+        run: npx prisma db push
+
+      - name: Run tests with coverage
         run: npx vitest run --reporter=verbose
-        env:
-          DATABASE_URL: "file:./db/custom.db"
-          LOG_LEVEL: "error"
 
-      - name: Check test coverage
-        run: npx vitest run --coverage 2>/dev/null || true
-        env:
-          DATABASE_URL: "file:./db/custom.db"
+      - name: Upload coverage report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 7
 
+  # ─── Stage 2: Build ──────────────────────────────────────────
   build:
+    name: Build
     needs: test
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+
+      - name: Cache node_modules
+        id: cache-node-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node20-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            node-modules-${{ runner.os }}-node20-
 
       - name: Install dependencies
+        if: steps.cache-node-modules.outputs.cache-hit != 'true'
         run: npm ci
 
-      - name: Generate Prisma client
+      - name: Cache .next/cache
+        uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: next-cache-${{ runner.os }}-node20-${{ hashFiles('**/*.ts', '**/*.tsx', '**/*.js') }}
+          restore-keys: |
+            next-cache-${{ runner.os }}-node20-
+
+      - name: Generate Prisma Client
         run: npx prisma generate
 
-      - name: Build
+      - name: Build Next.js
         run: npm run build
-        env:
-          DATABASE_URL: "file:./db/custom.db"
 
-      - name: Verify build artifact
+      - name: Upload .next/standalone artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nextjs-standalone
+          path: .next/standalone
+          retention-days: 7
+
+      - name: Verify artifact exists and is non-empty
         run: |
-          echo "=== Build Artifact ==="
-          ls -la .next/standalone/ | head -10
-          echo "=== Static Assets ==="
-          ls -la .next/static/ | head -10
-          echo "=== Docker readiness check ==="
-          test -f .next/standalone/server.js && echo "server.js OK" || exit 1
-          test -d .next/standalone/.next && echo ".next dir OK" || exit 1
+          if [ ! -d ".next/standalone" ]; then
+            echo "::error::.next/standalone directory does not exist"
+            exit 1
+          fi
+          FILE_COUNT=$(find .next/standalone -type f | wc -l)
+          echo "Artifact contains $FILE_COUNT files"
+          if [ "$FILE_COUNT" -eq 0 ]; then
+            echo "::error::.next/standalone is empty"
+            exit 1
+          fi
 
+  # ─── Stage 3: Docker (main branch only) ──────────────────────
   docker:
+    name: Docker Build
     needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker image
-        uses: docker/build-push-action@v5
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=sha,prefix=
+            type=ref,event=branch
+            latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
         with:
           context: .
-          push: false
-          tags: ai-store:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=docker
+          cache-to: type=gha,mode=max,scope=docker
 
-      - name: Verify image
+      - name: Verify Docker image exists
         run: |
-          docker images ai-store:${{ github.sha }}
-          echo "Image size:"
-          docker images ai-store:${{ github.sha }} --format "{{.Size}}"
+          IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
+          echo "Verifying image: $IMAGE_TAG"
+          if ! docker buildx imagetools inspect "$IMAGE_TAG" > /dev/null 2>&1; then
+            echo "::error::Docker image $IMAGE_TAG not found in registry"
+            exit 1
+          fi
+          echo "Image $IMAGE_TAG verified successfully"
