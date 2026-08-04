@@ -175,3 +175,22 @@ Stage Summary:
 - HTTPS: self-signed for dev, Caddy auto-TLS for production
 - Docker: SQLite-first, PostgreSQL optional, no more deploy failures from missing DB
 - Version: 0.6.0-alpha, commit e383b41, pushed to main
+
+---
+
+Task ID: 12
+Agent: main
+Task: Update README, CONTRIBUTING, ROADMAP for v0.7.0-alpha
+
+Work Log:
+
+- Rewrote README.md: 16 badges, full API reference (23 endpoints), data model (5 models with ER diagram), deployment guide (Docker, HTTPS, CI/CD 5-stage DAG), testing section (171 tests breakdown), version history, state management docs
+- Updated CONTRIBUTING.md: English translation, 18 scripts documented, architecture updated with 23 API routes and 12 store components, added idempotency convention
+- Updated ROADMAP.md: status line to v0.7.0-alpha, marked 13 additional completed items (HTTPS, ISR, reputation, sandbox, atomic cart, migrations, etc.), updated KPIs
+- Validated: 171/171 tests passing, lint-staged ran prettier on staged files
+
+Stage Summary:
+
+- 3 files changed: +775 insertions, -353 deletions
+- README now covers: Overview, Architecture, Features (6 sections), b'AI'tcoin integration, Data Model, API Reference (23 endpoints), Pulsar SSE, State Management, Tech Stack, Getting Started, Deployment, Environment Variables, Testing, Statistics, Version History
+- Commit: 87f048a, pushed to main
