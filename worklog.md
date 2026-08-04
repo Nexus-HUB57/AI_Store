@@ -217,3 +217,33 @@ Stage Summary:
 - 5 fases: Seguranca (3-4d), Robustez API (2-3d), Testes (3-4d), Infra (2d), Frontend (2-3d)
 - Tempo com paralelizacao: 8-10 dias
 - PDF: download/AI_Store_Auditoria_Roadmap_GoLive_v0.7.0-alpha.pdf (18 paginas)
+
+---
+
+Task ID: 13
+Agent: Main Agent
+Task: Surgical audit for Go Live — 33 fixes across 21 files
+
+Work Log:
+
+- Read and audited 30+ source files (middleware, auth, cart, pulsar, CSRF, env, Caddy, etc.)
+- Identified 8 CRITICAL, 10 HIGH, 15 MEDIUM, 12 LOW issues via comprehensive code review
+- Applied all CRITICAL and HIGH fixes, key MEDIUM fixes
+- Created src/lib/session.ts with HMAC-SHA256 signed token system
+- Updated next.config.ts with basePath /aistore for HostGator
+- Rewrote Caddyfile for www.mybait.org with handle_path and SSE passthrough
+- Fixed CSRF double-submit pattern (httpOnly was blocking client-side reads)
+- Added auth guard to upload-aipkg endpoint
+- Wrapped referral bonus in atomic db.$transaction
+- Tuned Pulsar SSE from 3s to 30s default (configurable via env)
+- Updated all hardcoded URLs from ai-store.nexus-os.io to www.mybait.org/aistore
+- Updated ROADMAP.md with v0.8.0-alpha status, audit fix list, revised phase overview
+- All 171 tests passing, build 0 errors
+- Committed 334ebe4, pushed to GitHub
+
+Stage Summary:
+
+- v0.8.0-alpha: Surgical audit hardening complete
+- 21 files changed, 305 insertions, 132 deletions
+- HostGator-ready: basePath, domain, Caddy, sessions, CSRF all fixed
+- Remaining gaps for Go Live: b'AI'tcoin on-chain (Phase 1), WASM runtime (Phase 3), monitoring (Phase 5)
