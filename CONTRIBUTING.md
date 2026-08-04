@@ -1,138 +1,163 @@
-# Contribuindo ao AI Store Nexus AI-OS
+# Contributing to AI Store Nexus AI-OS
 
-Obrigado pelo interesse em contribuir! Este guia cobre o setup de desenvolvimento, convenções de código e o fluxo de envio de PRs.
+Thanks for your interest! This guide covers development setup, code conventions, and the PR submission flow.
 
-## Pré-requisitos
+## Prerequisites
 
-- **Node.js** 20+ (LTS recomendado)
-- **npm** 10+ ou **Bun** 1.3+
-- **Git** com GPG signing configurado (opcional)
+- **Node.js** 20+ (LTS recommended)
+- **npm** 10+ or **Bun** 1.3+
+- **Git** with GPG signing configured (optional)
 
-## Setup Rápido
+## Quick Setup
 
 ```bash
 git clone https://github.com/Nexus-HUB57/AI_Store.git
 cd AI_Store
 npm ci
+cp .env.example .env  # configure DATABASE_URL
 npx prisma generate
 npx prisma db push
-cp .env.example .env  # configure DATABASE_URL
+npx tsx prisma/seed.ts  # seed 1,504 products
 npm run dev
 ```
 
-Acesse `http://localhost:3000` — o banco SQLite será criado automaticamente em `./db/custom.db`.
+Open `http://localhost:3000` — the SQLite database is created automatically at `./db/custom.db`.
 
-## Scripts Disponíveis
+For HTTPS development: `npm run https:certs && npm run https:dev` then open `https://localhost:3443`.
 
-| Comando | Descrição |
-|---------|------------|
-| `npm run dev` | Servidor de desenvolvimento na porta 3000 |
-| `npm run build` | Build de produção (standalone + static) |
-| `npm run start` | Iniciar produção (requer build prévio) |
-| `npm run test` | Rodar testes Vitest (verbose) |
-| `npm run test:watch` | Testes em modo watch |
-| `npm run test:coverage` | Testes com cobertura |
-| `npm run lint` | ESLint |
-| `npm run db:push` | Push do schema Prisma ao banco |
-| `npm run db:generate` | Gerar Prisma Client |
-| `npm run docker:build` | Build da imagem Docker |
-| `npm run docker:up` | Deploy com docker-compose (PostgreSQL) |
-| `npm run deploy:check` | Pipeline completo: test → build → docker |
+## Available Scripts
 
-## Arquitetura
+| Command                 | Description                                    |
+| ----------------------- | ---------------------------------------------- |
+| `npm run dev`           | Development server on port 3000 (Turbopack)    |
+| `npm run build`         | Production build (standalone + static + SSG)   |
+| `npm run start`         | Start production server (requires prior build) |
+| `npm run test`          | Run Vitest unit tests (171 tests, verbose)     |
+| `npm run test:watch`    | Tests in watch mode                            |
+| `npm run test:coverage` | Tests with coverage report                     |
+| `npm run e2e`           | Run Playwright E2E tests (4 specs)             |
+| `npm run lint`          | ESLint check                                   |
+| `npm run db:push`       | Push Prisma schema to database                 |
+| `npm run db:generate`   | Generate Prisma Client                         |
+| `npm run docker:build`  | Build Docker image                             |
+| `npm run docker:up`     | Deploy with docker-compose (production)        |
+| `npm run docker:down`   | Stop docker-compose                            |
+| `npm run docker:logs`   | Tail production logs                           |
+| `npm run deploy:check`  | Full pipeline: test + lint + build + docker    |
+| `npm run smoke`         | Production smoke test suite                    |
+| `npm run https:certs`   | Generate self-signed TLS certificates          |
+| `npm run https:dev`     | Start Caddy HTTPS proxy (port 3443)            |
+
+## Architecture
 
 ```
 src/
 ├── app/                    # Next.js App Router
-│   ├── api/                # API routes (Zod-validated)
-│   ├── product/[slug]/     # ISR product pages (revalidate: 3600s)
+│   ├── api/                # 23 API routes (Zod-validated)
+│   ├── product/[slug]/     # ISR product pages (server+client split, revalidate: 3600s)
 │   ├── dashboard/          # Agent dashboard (auth-guarded)
 │   ├── publish/            # Seller portal (auth-guarded)
-│   └── page.tsx            # Main marketplace (~1300 LOC)
+│   ├── admin/              # Admin analytics
+│   ├── not-found.tsx       # Custom 404
+│   └── global-error.tsx    # Custom 500 error boundary
 ├── components/
 │   ├── ui/                 # 16 shadcn/ui primitives
-│   ├── auth/               # Login dialog
-│   ├── product/            # Review form, star rating
-│   └── store/              # Cart panel, upload .aipkg
+│   ├── store/              # 12 store components (cart, upload, reputation, cards)
+│   ├── product/            # Star rating, review form
+│   └── auth/               # Login dialog
 ├── lib/
-│   ├── wallet-sdk.ts       # b'AI'tcoin Wallet SDK
+│   ├── wallet-sdk.ts       # BAITWalletSDK (transactions, signing, balance)
 │   ├── product-queries.ts  # Shared DB queries for ISR
 │   ├── auth-store.ts       # Zustand (agent identity)
 │   ├── cart-store.ts       # Zustand (cart + balance)
 │   ├── pulsar-store.ts     # Zustand (SSE updates)
 │   ├── schemas.ts          # Zod validation schemas
 │   ├── rate-limit.ts       # In-memory sliding window
-│   ├── csrf.ts             # CSRF token utilities
+│   ├── csrf.ts             # CSRF token (timingSafeEqual)
 │   ├── env.ts              # Zod-validated env vars
 │   ├── logger.ts           # Structured JSON logger
+│   ├── reputation-engine.ts # 6-factor reputation (S/A/B/C/D/F)
+│   ├── error-resolver.ts   # Contextual error suggestions
+│   ├── event-tracker.ts    # Analytics event tracking
 │   └── db.ts               # Singleton PrismaClient
 ├── hooks/
-│   └── use-pulsar-sse.ts   # SSE with exponential backoff
+│   ├── use-pulsar-sse.ts   # SSE with exponential backoff
+│   └── use-mobile.ts       # Responsive breakpoint hook
 ├── middleware.ts            # Auth guards, rate limiting, security headers
 └── middleware-helpers/
-    └── instrumented-handler.ts  # API route wrapper
+    └── instrumented-handler.ts  # API route wrapper (X-Request-ID)
 ```
 
-## Convenções de Código
+## Code Conventions
 
 ### TypeScript
-- Strict mode habilitado (`tsconfig.json`)
-- Usar `interface` para tipos de dados, `type` para unions/intersections
-- Preferir `const` sobre `let`, evitar `var`
 
-### Componentes React
-- Functional components com hooks
-- `'use client'` apenas quando necessário (state, effects, event handlers)
-- Props desctructuradas no parâmetro da função
-- Named exports (não default exports para componentes internos)
+- Strict mode enabled (`tsconfig.json`)
+- Use `interface` for data shapes, `type` for unions/intersections
+- Prefer `const` over `let`, avoid `var`
 
-### Estilo (Tailwind CSS 4)
+### React Components
+
+- Functional components with hooks
+- `'use client'` only when necessary (state, effects, event handlers)
+- Server components by default (data fetching in `page.tsx`)
+- Props destructured in function parameter
+- Named exports (no default exports for internal components)
+
+### Styling (Tailwind CSS 4)
+
 - Dark theme: zinc-950 base, emerald/cyan accents
-- oklch para gradientes when needed
-- Seguir padrão existente: `bg-zinc-900/60`, `border-white/[0.05]`, `text-zinc-400`
+- oklch for gradients when needed
+- Follow existing patterns: `bg-zinc-900/60`, `border-white/[0.05]`, `text-zinc-400`
 
-### Nomenclatura
-- Arquivos: `kebab-case.tsx` para componentes, `kebab-case.ts` para libs
-- Componentes: `PascalCase`
-- Funções/variáveis: `camelCase`
-- Constantes: `UPPER_SNAKE_CASE`
-- CSS classes: Tailwind utility classes (não custom CSS)
+### Naming
+
+- Files: `kebab-case.tsx` for components, `kebab-case.ts` for libs
+- Components: `PascalCase`
+- Functions/variables: `camelCase`
+- Constants: `UPPER_SNAKE_CASE`
+- CSS classes: Tailwind utility classes (no custom CSS)
 
 ### APIs
-- Todas as rotas POST/PUT/DELETE validam com Zod (`validate()` helper)
-- Retornar `{ error: string, details?: string }` para 400
-- Retornar 401 para rotas protegidas sem cookie
-- Usar `db` singleton de `@/lib/db`, nunca `new PrismaClient()` direto
 
-### Testes
-- Arquivos: `tests/*.test.ts`
-- Framework: Vitest
-- Cobrir schemas, lógica de negócio (discounts), utilitários
-- Testes de API routes requerem setup de banco (futuro)
+- All POST/PUT/DELETE routes validate with Zod
+- Return `{ error: string, details?: string }` for 400
+- Return 401 for protected routes without cookie
+- Use `db` singleton from `@/lib/db`, never `new PrismaClient()` directly
+- Use `idempotencyKey` (SHA-256) for state-changing operations
 
-## Envio de PRs
+### Testing
+
+- Unit tests: `tests/*.test.ts` (Vitest, 171 tests)
+- E2E tests: `e2e/*.spec.ts` (Playwright, 4 specs)
+- Cover schemas, business logic, utilities
+- All tests must pass before merge
+
+## PR Submission
 
 1. Fork + branch (`feat/...`, `fix/...`, `chore/...`)
-2. `npm run test` — todos os testes devem passar
+2. `npm run test` — all 171 tests must pass
 3. `npm run build` — 0 errors
-4. `npm run lint` — sem warnings novos
-5. Commit messages em português ou inglês (convention: `type: descrição`)
-6. PR description com: **O que**, **Por quê**, **Como testar**
+4. `npm run lint` — no new warnings
+5. Commit messages: conventional (`type: description`)
+6. PR description: **What**, **Why**, **How to test**
 
 ## b'AI'tcoin (BAIT)
 
-- 1 BAIT = 100 sats (denominação interna)
-- Preços: 20-100 BAIT (2000-10000 sats)
+- 1 BAIT = 100 sats (internal denomination)
+- Prices: 20-100 BAIT (2,000-10,000 sats)
 - SDK: `src/lib/wallet-sdk.ts` — currently simulated
-- Pagamentos: `/api/cart` POST → cria transação → debita saldo
+- Payments: `POST /api/cart` → atomic transaction → balance debit
+- Economy: 100 BAIT signup bonus, 25 BAIT referral reward, tiered discounts
 
 ## Deploy
 
 - **Docker**: `npm run docker:build` + `docker compose -f docker-compose.prod.yml up -d`
-- **CI**: GitHub Actions (test → build → docker) no branch `main`
+- **CI**: GitHub Actions 5-stage DAG (test → lint+typecheck → build → docker) on `main`
 - **Health**: `GET /api/health`
 - **Version**: `GET /api/version`
+- **HTTPS**: Caddy (self-signed dev, auto-TLS production)
 
-## Licença
+## License
 
-Proprietário — Nexus AI-OS. Todos os direitos reservados.
+Proprietary — Nexus AI-OS. All rights reserved.
