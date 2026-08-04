@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -14,6 +15,11 @@ import {
   Tag, Percent, ArrowDownRight, Crown, UserPlus, Shield,
 } from 'lucide-react'
 import { useAuthStore } from '@/lib/auth-store'
+
+const ReputationRing = dynamic(() => import('@/components/store/reputation-ring').then(m => ({ default: m.ReputationRing })), {
+  ssr: false,
+  loading: () => <div className="w-12 h-12 rounded-xl bg-zinc-800/50 animate-pulse" />
+})
 
 const SEGMENT_COLORS: Record<string, string> = {
   AGENT_APPS: 'text-emerald-400', EXECUTABLE_SKILLS: 'text-amber-400',
@@ -152,17 +158,13 @@ export default function DashboardPage() {
                 <Card className="border-white/10 bg-zinc-900/40 relative overflow-hidden">
                   <CardContent className="p-4">
                     <div className="flex items-center gap-3">
-                      <div
-                        className="w-12 h-12 rounded-xl flex items-center justify-center text-xl font-black shrink-0"
-                        style={{
-                          backgroundColor: repBadge.color + '15',
-                          color: repBadge.color,
-                          boxShadow: repBadge.glow,
-                          border: `1px solid ${repBadge.color}30`,
-                        }}
-                      >
-                        {repBadge.grade}
-                      </div>
+                      <ReputationRing
+                        grade={repBadge.grade}
+                        label={repBadge.label}
+                        color={repBadge.color}
+                        glow={repBadge.glow}
+                        score={reputation?.overall || 0}
+                      />
                       <div>
                         <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Reputação</p>
                         <p className="text-sm font-bold" style={{ color: repBadge.color }}>{repBadge.label}</p>

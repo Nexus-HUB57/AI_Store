@@ -63,10 +63,50 @@ jobs:
           path: coverage/
           retention-days: 7
 
-  # ─── Stage 2: Build ──────────────────────────────────────────
+  # ─── Stage 2a: Lint (parallel with typecheck) ────────────────
+  lint:
+    name: Lint
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node20-${{ hashFiles('package-lock.json') }}
+          restore-keys: node-modules-${{ runner.os }}-node20-
+      - run: npm ci
+      - run: npx prisma generate
+      - name: Run ESLint
+        run: npm run lint
+
+  # ─── Stage 2b: Type Check (parallel with lint) ───────────────
+  typecheck:
+    name: Type Check
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node20-${{ hashFiles('package-lock.json') }}
+          restore-keys: node-modules-${{ runner.os }}-node20-
+      - run: npm ci
+      - run: npx prisma generate
+      - name: TypeScript type check
+        run: npx tsc --noEmit
+
+  # ─── Stage 3: Build ──────────────────────────────────────────
   build:
     name: Build
-    needs: test
+    needs: [test, lint, typecheck]
     runs-on: ubuntu-latest
 
     steps:
@@ -125,7 +165,16 @@ jobs:
             exit 1
           fi
 
-  # ─── Stage 3: Docker (main branch only) ──────────────────────
+      - name: Build summary
+        if: always()
+        run: |
+          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Node.js**: 20" >> $GITHUB_STEP_SUMMARY
+          echo "- **Next.js**: 16" >> $GITHUB_STEP_SUMMARY
+          echo "- **Routes**: $(find .next/standalone -name '*.js' | wc -l) JS files" >> $GITHUB_STEP_SUMMARY
+          echo "- **Artifact**: .next/standalone" >> $GITHUB_STEP_SUMMARY
+
+  # ─── Stage 4: Docker (main branch only) ──────────────────────
   docker:
     name: Docker Build
     needs: build
@@ -135,6 +184,15 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Validate docker-compose.prod.yml
+        run: |
+          # Check YAML syntax and required keys
+          if ! command -v docker compose &> /dev/null; then
+            echo "Docker not available — skipping compose validation"
+          else
+            docker compose -f docker-compose.prod.yml config --quiet
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import { db } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { purchaseSchema, validate } from '@/lib/schemas'
@@ -18,14 +19,80 @@ function getDiscountTier(purchaseCount: number): { tier: string; percent: number
   return { tier: 'none', percent: 0 }
 }
 
+/**
+ * Generate a deterministic idempotency key from request data.
+ * Uses SHA-256 of agentId + first item id + totalSats.
+ */
+function generateIdempotencyKey(agentId: string, firstItemId: string, totalSats: number): string {
+  const input = `${agentId}:${firstItemId}:${totalSats}`
+  return createHash('sha256').update(input).digest('hex').slice(0, 32)
+}
+
+/**
+ * Classify an error to provide a specific status code and message.
+ * Known error types get targeted responses; unknown errors get 500.
+ */
+function classifyError(e: unknown, idempotencyKey: string): { statusCode: number; message: string } {
+  const errMsg = e instanceof Error ? e.message : 'Erro desconhecido'
+
+  if (errMsg.includes('Saldo insuficiente') || errMsg.includes('insufficient balance')) {
+    return { statusCode: 400, message: `Saldo insuficiente: ${errMsg}` }
+  }
+  if (errMsg.includes('Product not found') || errMsg.includes('não encontrado')) {
+    return { statusCode: 404, message: `Produto não encontrado: ${errMsg}` }
+  }
+  if (errMsg.includes('Agent not found') || errMsg.includes('Agente não encontrado')) {
+    return { statusCode: 404, message: `Agente não encontrado: ${errMsg}` }
+  }
+  return { statusCode: 500, message: errMsg }
+}
+
 export async function POST(req: NextRequest) {
+  const startTime = Date.now()
+  let idempotencyKey = ''
+
   try {
     const raw = await req.json()
+
+    // Extract idempotencyKey before schema validation (not part of the schema)
+    const providedKey = typeof raw.idempotencyKey === 'string' ? raw.idempotencyKey : undefined
+
     const parsed = validate(purchaseSchema, raw)
     if (!parsed.success) {
       return agentErrorResponse('/api/cart', new Error(parsed.error.message), 400)
     }
     const body = parsed.data
+
+    // Resolve idempotency key: use client-provided or generate deterministic one
+    idempotencyKey = providedKey || generateIdempotencyKey(body.agentId, body.items[0].id, body.totalSats)
+    const idempotencyTxHash = `idemp-${idempotencyKey}`
+
+    // ── Idempotency check ──
+    const existingTx = await db.transaction.findFirst({
+      where: { txHash: idempotencyTxHash },
+    })
+    if (existingTx) {
+      logger.info('cart_idempotency_hit', {
+        idempotencyKey,
+        existingTxId: existingTx.id,
+        buyerId: body.agentId,
+      })
+
+      const latencyMs = Date.now() - startTime
+      recordCall({ endpoint: '/api/cart', method: 'POST', statusCode: 200, latencyMs })
+
+      return NextResponse.json({
+        success: true,
+        idempotent: true,
+        txId: existingTx.txHash,
+        originalTxId: existingTx.id,
+        amountSats: existingTx.amountSats,
+        discountSats: existingTx.discountSats,
+        chargedSats: existingTx.amountSats - existingTx.discountSats,
+        blockHeight: existingTx.blockHeight,
+        message: 'This purchase was already processed (idempotent replay)',
+      })
+    }
 
     // Fetch agent with current purchaseCount
     const agent = await db.agent.findUnique({ where: { id: body.agentId } })
@@ -37,7 +104,16 @@ export async function POST(req: NextRequest) {
     const { tier, percent } = getDiscountTier(purchaseCount)
 
     // Calculate per-item discounts based on purchase position
-    const itemResults = []
+    const itemResults: Array<{
+      id: string
+      nome: string
+      precoSats: number
+      originalPrice: number
+      discountAmount: number
+      chargedPrice: number
+      tier: string
+      tierLabel: string
+    }> = []
     let totalCharged = 0
     let totalDiscount = 0
     let currentPurchaseIdx = purchaseCount
@@ -69,92 +145,123 @@ export async function POST(req: NextRequest) {
       return agentErrorResponse('/api/cart', err, 400)
     }
 
-    // Create, sign, and broadcast the main transaction via Wallet SDK
+    // ── Wallet SDK calls (outside DB transaction — simulated/external) ──
     const tx = baitWallet.createTransaction({
       from: agent.address,
       to: '@nexus-genesis',
       amountSats: totalCharged,
       type: 'purchase',
-      metadata: { items: body.items.length, discountTier: tier },
+      metadata: { items: body.items.length, discountTier: tier, idempotencyKey },
     })
     const signedTx = baitWallet.signTransaction(tx)
     const receipt = await baitWallet.broadcast(signedTx)
 
-    // Find or create system seller (nexus-genesis)
-    let seller = await db.agent.findFirst({ where: { address: '@nexus-genesis' } })
-    if (!seller) {
-      seller = await db.agent.create({
-        data: {
-          address: '@nexus-genesis',
-          displayName: 'Nexus AI-OS',
-          role: 'admin',
-          balanceSats: 0,
-          referralCode: 'NEXUS-ROOT',
-          capabilities: '[]',
-        },
-      })
-    }
-
-    // Create transactions per item and update DB
-    for (let i = 0; i < body.items.length; i++) {
-      const item = itemResults[i]
-      const product = await db.product.findUnique({ where: { id: item.id } })
-
-      // Per-item Wallet SDK transaction
+    // Pre-sign all per-item transactions (outside DB transaction)
+    const signedItemTxs = itemResults.map((item, i) => {
       const itemTx = baitWallet.createTransaction({
         from: agent.address,
         to: '@nexus-genesis',
         amountSats: item.chargedPrice,
         type: 'purchase',
-        metadata: { productId: item.id, tier: item.tier },
+        metadata: { productId: item.id, tier: item.tier, idempotencyKey },
       })
-      const signedItemTx = baitWallet.signTransaction(itemTx)
+      return baitWallet.signTransaction(itemTx)
+    })
 
-      await db.transaction.create({
+    // ── Atomic DB transaction (all-or-nothing) ──
+    await db.$transaction(async (tx) => {
+      // Find or create system seller (nexus-genesis) inside transaction
+      let seller = await tx.agent.findFirst({ where: { address: '@nexus-genesis' } })
+      if (!seller) {
+        seller = await tx.agent.create({
+          data: {
+            address: '@nexus-genesis',
+            displayName: 'Nexus AI-OS',
+            role: 'admin',
+            balanceSats: 0,
+            referralCode: 'NEXUS-ROOT',
+            capabilities: '[]',
+          },
+        })
+      }
+
+      // Re-read agent inside transaction for latest balance
+      const freshAgent = await tx.agent.findUnique({ where: { id: agent.id } })
+      if (!freshAgent) {
+        throw new Error(`Agent not found: ${agent.id}`)
+      }
+      if (freshAgent.balanceSats < totalCharged) {
+        const err = new Error(
+          `Saldo insuficiente (race detected): necessário ${totalCharged}, disponível ${freshAgent.balanceSats}`
+        )
+        Object.assign(err, { balance: freshAgent.balanceSats, required: totalCharged })
+        throw err
+      }
+
+      // Create per-item transactions and increment downloads
+      for (let i = 0; i < body.items.length; i++) {
+        const item = itemResults[i]
+        const product = await tx.product.findUnique({ where: { id: item.id } })
+
+        // First item uses idempotency txHash for dedup; rest use signed item txId
+        const itemTxHash = i === 0 ? idempotencyTxHash : signedItemTxs[i].txId
+
+        await tx.transaction.create({
+          data: {
+            type: tier === 'free' ? 'purchase_free' : tier === 'half' ? 'purchase_discounted' : 'purchase',
+            status: 'confirmed',
+            amountSats: item.originalPrice,
+            discountSats: item.discountAmount,
+            buyerId: agent.id,
+            sellerId: product?.authorAgent === agent.displayName ? agent.id : seller.id,
+            productId: item.id,
+            txHash: itemTxHash,
+            blockHeight: receipt.blockHeight + i,
+          },
+        })
+
+        // Increment product downloads
+        if (product) {
+          await tx.product.update({
+            where: { id: item.id },
+            data: { downloads: { increment: 1 } },
+          })
+        }
+      }
+
+      // Debit buyer balance and increment purchase count
+      await tx.agent.update({
+        where: { id: agent.id },
         data: {
-          type: tier === 'free' ? 'purchase_free' : tier === 'half' ? 'purchase_discounted' : 'purchase',
-          status: 'confirmed',
-          amountSats: item.originalPrice,
-          discountSats: item.discountAmount,
-          buyerId: agent.id,
-          sellerId: product?.authorAgent === agent.displayName ? agent.id : seller.id,
-          productId: item.id,
-          txHash: signedItemTx.txId,
-          blockHeight: receipt.blockHeight + i,
+          balanceSats: { decrement: totalCharged },
+          purchaseCount: purchaseCount + body.items.length,
         },
       })
 
-      // Increment product downloads
-      if (product) {
-        await db.product.update({
-          where: { id: item.id },
-          data: { downloads: { increment: 1 } },
-        })
-      }
-    }
-
-    // Debit buyer balance
-    await db.agent.update({
-      where: { id: agent.id },
-      data: {
-        balanceSats: { decrement: totalCharged },
-        purchaseCount: purchaseCount + body.items.length,
-      },
-    })
-
-    // Credit seller
-    await db.agent.update({
-      where: { id: seller.id },
-      data: { balanceSats: { increment: totalCharged } },
+      // Credit seller
+      await tx.agent.update({
+        where: { id: seller.id },
+        data: { balanceSats: { increment: totalCharged } },
+      })
     })
 
     const newBalance = agent.balanceSats - totalCharged
+
+    const latencyMs = Date.now() - startTime
+    recordCall({ endpoint: '/api/cart', method: 'POST', statusCode: 200, latencyMs })
+    logger.info('cart_purchase_success', {
+      idempotencyKey,
+      agentId: body.agentId,
+      totalCharged,
+      itemCount: body.items.length,
+      latencyMs,
+    })
 
     return NextResponse.json({
       success: true,
       txId: receipt.txId,
       totalOriginal: body.totalSats,
-      totalDiscount: totalDiscount,
+      totalDiscount,
       totalCharged,
       totalBAIT: satsToBAIT(totalCharged),
       totalChargedFormatted: formatSats(totalCharged),
@@ -167,9 +274,13 @@ export async function POST(req: NextRequest) {
       timestamp: receipt.timestamp,
     })
   } catch (e) {
-    const errMsg = e instanceof Error ? e.message : 'Erro desconhecido'
-    logger.error('cart_purchase_failed', { error: errMsg })
-    return agentErrorResponse('/api/cart', e, 500)
+    const { statusCode, message } = classifyError(e, idempotencyKey)
+    logger.error('cart_purchase_failed', {
+      idempotencyKey,
+      error: message,
+      statusCode,
+    })
+    return agentErrorResponse('/api/cart', e, statusCode)
   }
 }
 
