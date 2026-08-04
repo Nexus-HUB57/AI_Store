@@ -54,7 +54,7 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
-      - name: Seed database (if empty)
+      - name: Seed database
         run: |
           COUNT=$(npx tsx -e "const{PrismaClient}=require('@prisma/client');new PrismaClient().product.count().then(c=>{console.log(c);process.exit(c>0?0:1)})" 2>/dev/null || echo "0")
           if [ "$COUNT" = "0" ]; then
@@ -64,115 +64,13 @@ jobs:
             echo "[+] Database already has $COUNT products"
           fi
 
-      - name: Build Next.js (standalone)
+      - name: Build Next.js
         env:
           NODE_ENV: production
           NEXT_PUBLIC_BASE_PATH: /aistore
           NEXT_PUBLIC_BASE_URL: https://www.mybait.org/aistore
         run: npx next build
 
-      - name: Verify build output
+      - name: Verify build
         run: |
-          echo "[+] Verifying build..."
-          test -f .next/standalone/server.js || { echo "ERROR: server.js not found"; exit 1; }
-          test -d .next/static || { echo "ERROR: static assets not found"; exit 1; }
-          ROUTES=$(find .next/server/app -name 'route.js' 2>/dev/null | wc -l)
-          SSG=$(find .next/server/app -name 'html' 2>/dev/null | wc -l)
-          echo "  API routes:  $ROUTES"
-          echo "  SSG pages:   $SSG"
-          echo "  Static assets: $(du -sh .next/static | cut -f1)"
-          echo "  Standalone:    $(du -sh .next/standalone | cut -f1)"
-
-      - name: Prepare standalone deploy package
-        run: |
-          mkdir -p deploy/standalone
-          cp -r .next/standalone/ deploy/standalone/
-          mkdir -p deploy/standalone/.next/static
-          cp -r .next/static/* deploy/standalone/.next/static/
-          mkdir -p deploy/standalone/public
-          cp -r public/* deploy/standalone/public/ 2>/dev/null || true
-          mkdir -p deploy/standalone/prisma
-          cp prisma/schema.prisma deploy/standalone/prisma/
-          mkdir -p deploy/standalone/db
-          cp db/custom.db deploy/standalone/db/custom.db
-          echo "[+] DB size: $(du -sh deploy/standalone/db/custom.db | cut -f1)"
-          cp package.json deploy/standalone/
-          cp hostgator/api.cgi deploy/
-          cp hostgator/.htaccess deploy/
-          cp hostgator/setup_aistore.sh deploy/
-          chmod +x deploy/api.cgi deploy/setup_aistore.sh
-          cd deploy/standalone
-          tar czf ../aistore-codebase.tar.gz .
-          cd ../..
-          echo "[+] Package ready: $(du -h deploy/aistore-codebase.tar.gz | cut -f1)"
-          echo "    Total files: $(find deploy/standalone -type f | wc -l)"
-
-      - name: Parse credentials
-        env:
-          HG_CREDS: ${{ secrets.CREDENCIAIS_HOSTGATOR }}
-        run: |
-          if [ -z "$HG_CREDS" ]; then
-            echo "Secret CREDENCIAIS_HOSTGATOR is not set"
-            echo "Go to repo Settings > Secrets and add it"
-            exit 1
-          fi
-          eval $(python3 -c "
-          import os, json
-          c = json.loads(os.environ['HG_CREDS'])
-          print(f\"HOST={c.get('host','')}\")
-          print(f\"USER={c.get('user','')}\")
-          print(f\"PASS={c.get('password','')}\")
-          print(f\"PORT={c.get('port', 21)}\")
-          ")
-          if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$PASS" ]; then
-            echo "Missing host/user/password"; exit 1
-          fi
-          echo "HOST=$HOST" >> $GITHUB_ENV
-          echo "USER=$USER" >> $GITHUB_ENV
-          echo "PASS=$PASS" >> $GITHUB_ENV
-          echo "PORT=$PORT" >> $GITHUB_ENV
-
-      - name: Install lftp
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
-
-      - name: Deploy CGI gateway and routing
-        run: |
-          cat > /tmp/lftp-cgi.cmd << 'LFEOF'
-          set ftp:ssl-force true
-          set ssl:verify-certificate no
-          set net:timeout 60
-          mkdir -p public_html/aistore
-          lcd deploy
-          put api.cgi -o public_html/aistore/api.cgi
-          chmod 755 public_html/aistore/api.cgi
-          put .htaccess -o public_html/aistore/.htaccess
-          put setup_aistore.sh -o public_html/aistore/setup_aistore.sh
-          chmod 755 public_html/aistore/setup_aistore.sh
-          bye
-          LFEOF
-          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -f /tmp/lftp-cgi.cmd
-          echo "[+] CGI gateway + .htaccess deployed"
-
-      - name: Upload codebase
-        run: |
-          cat > /tmp/lftp-code.cmd << 'LFEOF'
-          set ftp:ssl-force true
-          set ssl:verify-certificate no
-          set net:timeout 120
-          lcd deploy
-          put aistore-codebase.tar.gz -o public_html/aistore-codebase.tar.gz
-          bye
-          LFEOF
-          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -f /tmp/lftp-code.cmd
-          echo "[+] Codebase uploaded"
-
-      - name: Verify deployment
-        if: always()
-        run: |
-          echo "========================================"
-          echo "  AI Store HostGator Deploy"
-          echo "========================================"
-          echo "  Store:  https://www.mybait.org/aistore/"
-          echo "  Health: https://www.mybait.org/aistore/api/health"
-          echo "  Products: https://www.mybait.org/aistore/api/products"
-          echo "========================================"
+          test -f .next/standalone/server.js && echo 'BUILD OK' || { echo 'BUILD FAILED'; exit 1; }
