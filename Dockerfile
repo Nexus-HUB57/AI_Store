@@ -26,8 +26,9 @@ ENV LOG_LEVEL=info
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-# Create data directory for SQLite
+# Create data directory for SQLite + copy seeded DB
 RUN mkdir -p /app/db && chown nextjs:nodejs /app/db
+COPY --from=builder --chown=nextjs:nodejs /app/db/custom.db ./db/custom.db 2>/dev/null || true
 
 COPY --from=builder /app/public ./public
 
