@@ -8,6 +8,7 @@ on:
       - 'prisma/**'
       - 'public/**'
       - 'hostgator/**'
+      - '.github/workflows/deploy_hostgator.yml'
       - 'scripts/seed-full.ts'
       - 'db/**'
       - 'next.config.ts'
@@ -86,8 +87,8 @@ jobs:
         run: |
           mkdir -p deploy/standalone
 
-          # Copy standalone server output
-          cp -r .next/standalone/* deploy/standalone/
+          # Copy standalone server output (preserve BUILD_ID with trailing /)
+          cp -r .next/standalone/ deploy/standalone/
 
           # Copy static assets into standalone/.next/static/
           mkdir -p deploy/standalone/.next/static
@@ -127,6 +128,13 @@ jobs:
         env:
           HG_CREDS: ${{ secrets.CREDENCIAIS_HOSTGATOR }}
         run: |
+          if [ -z "$HG_CREDS" ]; then
+            echo "::error::Secret CREDENCIAIS_HOSTGATOR is not set in this repo"
+            echo "::error::Go to Settings > Secrets and variables > Actions > New repository secret"
+            echo "::error::Name: CREDENCIAIS_HOSTGATOR"
+            echo "::error::Value: {\"host\":\"...\",\"user\":\"...\",\"password\":\"...\",\"port\":21}"
+            exit 1
+          fi
           eval $(python3 -c "
           import os, json
           c = json.loads(os.environ['HG_CREDS'])
@@ -136,7 +144,7 @@ jobs:
           print(f\"PORT={c.get('port', 21)}\")
           ")
           if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$PASS" ]; then
-            echo "::error::Missing host/user/password"; exit 1
+            echo "::error::Missing host/user/password in secret JSON"; exit 1
           fi
           echo "HOST=$HOST" >> $GITHUB_ENV
           echo "USER=$USER" >> $GITHUB_ENV
@@ -146,51 +154,37 @@ jobs:
       - name: Install lftp
         run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
 
-      # ═══════════════════════════════════════════════════════════
-      # DEPLOY: CGI Gateway + .htaccess + Setup script
-      # ═══════════════════════════════════════════════════════════
       - name: Deploy CGI gateway and routing
         run: |
-          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" <<LFTP_EOF
+          cat > /tmp/lftp-cgi.cmd << 'EOF'
           set ftp:ssl-force true
           set ssl:verify-certificate no
           set net:timeout 60
-
           mkdir -p public_html/aistore
-
-          cd deploy
+          lcd deploy
           put api.cgi -o public_html/aistore/api.cgi
           chmod 755 public_html/aistore/api.cgi
-
           put .htaccess -o public_html/aistore/.htaccess
-
           put setup_aistore.sh -o public_html/aistore/setup_aistore.sh
           chmod 755 public_html/aistore/setup_aistore.sh
-
           bye
-          LFTP_EOF
+          EOF
+          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -f /tmp/lftp-cgi.cmd
           echo "[+] CGI gateway + .htaccess deployed"
 
-      # ═══════════════════════════════════════════════════════════
-      # DEPLOY: Codebase tarball
-      # ═══════════════════════════════════════════════════════════
       - name: Upload codebase
         run: |
-          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" <<LFTP_EOF
+          cat > /tmp/lftp-code.cmd << 'EOF'
           set ftp:ssl-force true
           set ssl:verify-certificate no
           set net:timeout 120
-
-          cd deploy
+          lcd deploy
           put aistore-codebase.tar.gz -o public_html/aistore-codebase.tar.gz
-
           bye
-          LFTP_EOF
+          EOF
+          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -f /tmp/lftp-code.cmd
           echo "[+] Codebase uploaded ($(du -h deploy/aistore-codebase.tar.gz | cut -f1))"
 
-      # ═══════════════════════════════════════════════════════════
-      # VERIFICATION
-      # ═══════════════════════════════════════════════════════════
       - name: Verify deployment
         run: |
           echo "[+] Verifying..."
@@ -204,13 +198,12 @@ jobs:
 
           echo ""
           echo "========================================"
-          echo "  AI Store — HostGator Deploy"
+          echo "  AI Store HostGator Deploy Complete"
           echo "========================================"
           echo "  Store:    https://www.mybait.org/aistore/"
           echo "  Health:   https://www.mybait.org/aistore/api/health"
           echo "  Version:  https://www.mybait.org/aistore/api/version"
           echo "  Products: https://www.mybait.org/aistore/api/products"
-          echo "  b'AI't:   https://www.mybait.org/api/api/v1/status"
           echo "========================================"
           echo "  First visit triggers Node.js setup (~30s)"
           echo "========================================"
