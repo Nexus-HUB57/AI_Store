@@ -122,3 +122,31 @@ Stage Summary:
 - Cart: idempotent, atomic, with error classification
 - Bundle: Framer Motion split into separate chunks
 - Pushed to main: d1f6307..92d1208
+---
+Task ID: 11
+Agent: main
+Task: v0.6.0-alpha — HTTPS, Static Module Fix, End-to-End Content Access, Deploy Fix
+
+Work Log:
+- Split product/[slug] into server page.tsx (data fetch) + client page-client.tsx (interactivity)
+- Product data now fetched server-side via getProductDetail(), passed as props to client component
+- Static HTML now contains full product content (72KB/page: title, description, stats, badges, buttons)
+- Previously, page was 'use client' with empty shell + client-side API fetch (0 content in static HTML)
+- Reviews remain client-side fetched (interactive feature requiring auth state)
+- Generated self-signed TLS certificates (certs/cert.pem, certs/key.pem)
+- Created Caddyfile with HTTPS on :3443 (self-signed) and :443 (production auto-TLS via Caddy)
+- Added HTTP→HTTPS permanent redirect on :80
+- Updated Dockerfile: added Caddy + openssl, auto-generates certs during build
+- Fixed docker-compose.prod.yml: removed hard PostgreSQL dependency (caused deploy failures)
+- PostgreSQL now optional via --profile postgres flag
+- Default deploy uses SQLite (zero external dependencies)
+- Unified all 4 version strings to 0.6.0-alpha (package.json, /api/version, /api/health, /api/openapi-spec)
+- Created .env.example with all configuration variables documented
+- Added npm scripts: https:certs (generate TLS), https:dev (start Caddy proxy)
+
+Stage Summary:
+- Build: 1533 routes (1504 SSG), 0 errors, 171/171 tests passing
+- Product pages: 72KB static HTML with full server-rendered content
+- HTTPS: self-signed for dev, Caddy auto-TLS for production
+- Docker: SQLite-first, PostgreSQL optional, no more deploy failures from missing DB
+- Version: 0.6.0-alpha, commit e383b41, pushed to main
