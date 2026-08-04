@@ -8,11 +8,15 @@ services:
     container_name: ai-store-nexus
     ports:
       - "3000:3000"
+      - "3443:3443"
     volumes:
       - store-db:/app/db
+      - ./certs:/app/certs:ro
     environment:
       - NODE_ENV=production
       - DATABASE_URL=file:/app/db/custom.db
+      - NEXT_PUBLIC_BASE_URL=https://localhost:3443
+      - FORCE_HTTPS=true
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]

@@ -1,6 +1,5 @@
 import { db } from '@/lib/db'
 import type { Metadata } from 'next'
-import { notFound } from 'next/navigation'
 import { getAllProductSlugs, getProductBySlug } from '@/lib/product-queries'
 
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://ai-store.nexus-os.io'
@@ -50,7 +49,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function ProductLayout({ children, params }: Props) {
   const { slug } = await params
   const exists = await getProductBySlug(slug)
-  if (!exists) notFound()
+  if (!exists) {
+    const { notFound } = await import('next/navigation')
+    notFound()
+  }
 
   return <>{children}</>
 }

@@ -1,4 +1,11 @@
-:81 {
+# AI Store Nexus AI-OS — Caddy Reverse Proxy with HTTPS
+# Development: self-signed certs from ./certs/
+# Production: automatic Let's Encrypt for ai-store.nexus-os.io
+
+# ── HTTPS on port 443 (production with auto-TLS) ──
+ai-store.nexus-os.io {
+	tls internal
+
 	@transform_port_query {
 		query XTransformPort=*
 	}
@@ -20,4 +27,23 @@
 			header_up X-Real-IP {remote_host}
 		}
 	}
+}
+
+# ── Local HTTPS dev on port 3443 (self-signed) ──
+:3443 {
+	tls /app/certs/cert.pem /app/certs/key.pem
+
+	handle {
+		reverse_proxy localhost:3000 {
+			header_up Host {host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Real-IP {remote_host}
+		}
+	}
+}
+
+# ── HTTP redirect to HTTPS (port 80 → 443) ──
+:80 {
+	redir https://{host}{uri} permanent
 }

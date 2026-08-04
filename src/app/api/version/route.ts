@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
 const VERSION_INFO = {
-  version: '0.3.0-beta',
+  version: '0.6.0-alpha',
   name: 'AI Store Nexus AI-OS',
   commit: process.env.GITHUB_SHA?.slice(0, 8) || 'dev',
   node: process.version,

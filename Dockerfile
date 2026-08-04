@@ -17,7 +17,7 @@ RUN npm run build
 
 # ─── Production Stage ───
 FROM node:20-alpine AS runner
-RUN apk add --no-cache wget postgresql-client tini
+RUN apk add --no-cache wget tini openssl caddy
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -26,8 +26,17 @@ ENV LOG_LEVEL=info
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-# Create data directory for SQLite + copy seeded DB
-RUN mkdir -p /app/db && chown nextjs:nodejs /app/db
+# Create data directory for SQLite + TLS certs
+RUN mkdir -p /app/db /app/certs && chown -R nextjs:nodejs /app/db /app/certs
+
+# Generate self-signed TLS certs for HTTPS if not mounted
+RUN openssl req -x509 -newkey rsa:2048 \
+    -keyout /app/certs/key.pem -out /app/certs/cert.pem \
+    -days 365 -nodes \
+    -subj "/C=BR/ST=SP/L=SaoPaulo/O=Nexus-AI-OS/CN=localhost" \
+    2>/dev/null
+
+# Copy seeded DB (if exists)
 COPY --from=builder --chown=nextjs:nodejs /app/db/custom.db ./db/custom.db 2>/dev/null || true
 
 COPY --from=builder /app/public ./public
@@ -43,9 +52,12 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
 
+# Caddy configuration for HTTPS reverse proxy
+COPY --from=builder --chown=nextjs:nodejs /app/Caddyfile /etc/caddy/Caddyfile
+
 USER nextjs
 
-EXPOSE 3000
+EXPOSE 3000 3443
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
