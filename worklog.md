@@ -194,3 +194,26 @@ Stage Summary:
 - 3 files changed: +775 insertions, -353 deletions
 - README now covers: Overview, Architecture, Features (6 sections), b'AI'tcoin integration, Data Model, API Reference (23 endpoints), Pulsar SSE, State Management, Tech Stack, Getting Started, Deployment, Environment Variables, Testing, Statistics, Version History
 - Commit: 87f048a, pushed to main
+
+---
+
+Task ID: 13
+Agent: main
+Task: Auditoria cirurgica e roadmap Go-Live (v0.7.0-alpha)
+
+Work Log:
+
+- Audit completa de 23 API routes: IDOR em 6 rotas, 8 sem try/catch, schemas Zod definidos mas nao usados
+- Audit de seguranca: 5 vulnerabilidades criticas (SEC-01 a SEC-05), open proxy no Caddyfile, upload sem auth, admin sem role
+- Audit de banco de dados: 12 indices ausentes, Agent.referralCode bomba-relogio, cascade assimetrico, seed nao-idempotente
+- Audit de frontend: page.tsx 860 linhas, liveUpdates desconectados dos ProductCards, hydration mismatch
+- Audit de testes: 19 de 22 areas com cobertura zero, cart-logic.test.ts testa codigo duplicado
+- Audit de infraestrutura: Caddy morto no Docker, PostgreSQL exposto, .dockerignore sem .env e certs
+- Produziu PDF: 18 paginas, 10 tabelas, 5 fases cirurgicas com 47 tasks priorizados
+
+Stage Summary:
+
+- 47 findings (12 P0, 14 P1, 13 P2, 8 P3)
+- 5 fases: Seguranca (3-4d), Robustez API (2-3d), Testes (3-4d), Infra (2d), Frontend (2-3d)
+- Tempo com paralelizacao: 8-10 dias
+- PDF: download/AI_Store_Auditoria_Roadmap_GoLive_v0.7.0-alpha.pdf (18 paginas)
