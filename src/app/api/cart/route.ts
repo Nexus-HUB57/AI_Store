@@ -320,7 +320,7 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const networkInfo = baitWallet.getNetworkInfo()
+  const networkInfo = await baitWallet.getNetworkInfo()
 
   return NextResponse.json({
     network: `bAI-${networkInfo.network}`,

@@ -1,12 +1,22 @@
 /**
- * b'AI'tcoin Wallet SDK — Phase 1 (Simulated)
+ * b'AI'tcoin Wallet SDK — Phase 2 (Hybrid: Real API + Simulation Fallback)
  * 
- * Provides the transaction layer for the AI Store marketplace.
- * Currently operates in simulated mode; will connect to BAIT mainnet
- * via Schnorr/BIP-340 signatures and zkML proofs in Phase 1+.
+ * Connects to the real b'AI'tcoin daemon API when available.
+ * Falls back to simulated mode for development and when daemon is offline.
+ * 
+ * Server-side: calls http://127.0.0.1:18445/api/v1/ (local daemon)
+ * Client-side: uses simulation (browser can't call internal ports)
  * 
  * BAIT denomination: 1 BAIT = 100 sats
  */
+
+import {
+  checkBaitcoinHealth,
+  getBaitcoinBalance,
+  getBaitcoinTokenInfo,
+  transferBait,
+  getBaitcoinStatus,
+} from './baitcoin-api'
 
 // ─── Pure Utility Functions ───
 
@@ -86,15 +96,75 @@ export interface WalletConfig {
 export class BAITWalletSDK {
   network: BAITNetwork
   private baseUrl: string
+  private _daemonOnline: boolean | null = null
+  private _daemonCheckTime = 0
 
   constructor(config: WalletConfig = {}) {
     this.network = config.network || 'mainnet'
-    this.baseUrl = config.baseUrl || 'https://bait.nexus-os.io/api/v1'
+    this.baseUrl = config.baseUrl || 'https://www.mybait.org/api/api/v1'
+  }
+
+  /**
+   * Check if the b'AI'tcoin daemon is reachable.
+   * Results are cached for 30 seconds.
+   */
+  async isDaemonOnline(): Promise<boolean> {
+    const now = Date.now()
+    if (this._daemonOnline !== null && now - this._daemonCheckTime < 30000) {
+      return this._daemonOnline
+    }
+    try {
+      const health = await checkBaitcoinHealth()
+      this._daemonOnline = health.online
+      this._daemonCheckTime = now
+      return health.online
+    } catch {
+      this._daemonOnline = false
+      this._daemonCheckTime = now
+      return false
+    }
+  }
+
+  /**
+   * Get real network info from the b'AI'tcoin daemon.
+   */
+  async getRealNetworkInfo(): Promise<Record<string, unknown> | null> {
+    try {
+      const [status, tokenInfo] = await Promise.all([
+        getBaitcoinStatus(),
+        getBaitcoinTokenInfo(),
+      ])
+      return {
+        network: status.network || 'bAI-mainnet',
+        blockHeight: status.block_height,
+        totalSupply: tokenInfo.total_supply ? `${(tokenInfo.total_supply / 1e8).toFixed(0)} BAIT` : '21,000,000 BAIT',
+        circulating: tokenInfo.circulating_supply ? `${(tokenInfo.circulating_supply / 1e8).toFixed(0)} BAIT` : '0 BAIT',
+        agentsCount: status.agents_count,
+        txCount: status.transactions_count,
+        daemonOnline: true,
+      }
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Get real balance from the b'AI'tcoin blockchain.
+   */
+  async getRealBalance(agentAddress: string): Promise<number | null> {
+    try {
+      const balance = await getBaitcoinBalance(agentAddress)
+      // Convert from s'AI'toshis (8 decimals) to our sats (2 decimals)
+      return Math.floor((balance.balance || 0) / 1e6)
+    } catch {
+      return null
+    }
   }
 
   /**
    * Create a transaction payload (unsigned).
-   * In mainnet, this would construct the Schnorr/BIP-340 signing payload.
+   * In mainnet with daemon online, constructs the signing payload.
+   * In simulated mode, generates a deterministic hash.
    */
   createTransaction(params: {
     from: string
@@ -103,7 +173,6 @@ export class BAITWalletSDK {
     type: TransactionPayload['type']
     metadata?: Record<string, unknown>
   }): TransactionPayload {
-    // Deterministic txId from inputs (simulated hash)
     const hashInput = `${params.from}:${params.to}:${params.amountSats}:${Date.now()}`
     const txId = `bAI-tx-${this.hashStr(hashInput)}`
 
@@ -135,11 +204,36 @@ export class BAITWalletSDK {
   }
 
   /**
-   * Broadcast a signed transaction to the network.
-   * In mainnet, this submits to the b'AI'tcoin node.
+   * Broadcast a signed transaction.
+   * Attempts real broadcast via b'AI'tcoin daemon first,
+   * falls back to simulated broadcast.
    */
   async broadcast(tx: SignedTransaction): Promise<BroadcastReceipt> {
-    // Simulated broadcast — in mainnet this is a real RPC call
+    // Try real broadcast via daemon
+    const daemonOnline = await this.isDaemonOnline()
+    if (daemonOnline) {
+      try {
+        const result = await transferBait({
+          from: tx.from,
+          to: tx.to,
+          amount: tx.amountSats,
+        })
+        if (result.success) {
+          return {
+            txId: result.tx_hash || tx.txId,
+            confirmed: true,
+            blockHeight: result.block_height || 0,
+            confirmations: 1,
+            blockHash: `0x${this.hashStr(tx.txId).slice(0, 16)}...`,
+            timestamp: new Date().toISOString(),
+          }
+        }
+      } catch {
+        // Fall through to simulation
+      }
+    }
+
+    // Simulated broadcast fallback
     const blockHeight = 1847293 + Math.floor(Math.random() * 100)
     return {
       txId: tx.txId,
@@ -171,7 +265,6 @@ export class BAITWalletSDK {
 
   /**
    * Calculate discount for a single item based on purchase count.
-   * Mirrors the server-side discount logic in /api/cart.
    */
   calculateDiscount(params: {
     purchaseCount: number
@@ -201,9 +294,20 @@ export class BAITWalletSDK {
   }
 
   /**
-   * Get wallet info for the current network.
+   * Get wallet info — tries real daemon, falls back to static data.
    */
-  getNetworkInfo() {
+  async getNetworkInfo() {
+    // Try real data from daemon
+    const realInfo = await this.getRealNetworkInfo()
+    if (realInfo) {
+      return {
+        ...realInfo,
+        baitPerSat: 100,
+        avgFee: 1,
+      }
+    }
+
+    // Fallback static data
     return {
       network: this.network,
       baitPerSat: 100,
@@ -211,16 +315,17 @@ export class BAITWalletSDK {
       totalSupply: '21,000,000 BAIT',
       circulating: '14,302,891 BAIT',
       avgFee: 1,
+      daemonOnline: false,
     }
   }
 
-  // Simple deterministic hash (simulated — real implementation uses SHA-256)
+  // Simple deterministic hash (simulated — real uses SHA-256 via Schnorr)
   private hashStr(input: string): string {
     let hash = 0
     for (let i = 0; i < input.length; i++) {
       const char = input.charCodeAt(i)
       hash = ((hash << 5) - hash) + char
-      hash = hash & hash // Convert to 32bit integer
+      hash = hash & hash
     }
     return Math.abs(hash).toString(16).padStart(8, '0')
   }

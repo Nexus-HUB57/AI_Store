@@ -1,0 +1,215 @@
+name: Deploy AI Store to HostGator
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'prisma/**'
+      - 'public/**'
+      - 'hostgator/**'
+      - 'next.config.ts'
+      - 'tailwind.config.ts'
+      - 'postcss.config.mjs'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - 'components.json'
+  workflow_dispatch:
+    inputs:
+      deploy_target:
+        description: 'Deploy scope'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - frontend-only
+          - api-only
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: aistore-hostgator-deploy
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Build Next.js (standalone)
+        env:
+          NODE_ENV: production
+          NEXT_PUBLIC_BASE_PATH: /aistore
+          NEXT_PUBLIC_BASE_URL: https://www.mybait.org/aistore
+          BUILD_TIME: ${{ github.event.head_commit.timestamp || now() }}
+        run: npx next build
+
+      - name: Prepare standalone deploy package
+        run: |
+          # Create deploy directory structure
+          mkdir -p deploy/standalone
+
+          # Copy standalone server output
+          cp -r .next/standalone/* deploy/standalone/
+
+          # Copy static assets into standalone/.next/static/
+          mkdir -p deploy/standalone/.next/static
+          cp -r .next/static/* deploy/standalone/.next/static/
+
+          # Copy public files
+          mkdir -p deploy/standalone/public
+          cp -r public/* deploy/standalone/public/ 2>/dev/null || true
+
+          # Copy Prisma schema for runtime generation
+          mkdir -p deploy/standalone/prisma
+          cp prisma/schema.prisma deploy/standalone/prisma/
+
+          # Copy database
+          mkdir -p deploy/standalone/db
+          cp db/custom.db deploy/standalone/db/custom.db
+
+          # Copy package.json for production deps
+          cp package.json deploy/standalone/
+
+          # Copy CGI gateway
+          cp hostgator/api.cgi deploy/
+          cp hostgator/.htaccess deploy/
+          cp hostgator/setup_aistore.sh deploy/
+
+          chmod +x deploy/api.cgi
+          chmod +x deploy/setup_aistore.sh
+
+          # Create tarball of standalone server
+          cd deploy/standalone
+          tar czf ../aistore-codebase.tar.gz .
+          cd ../..
+
+          echo "[+] Deploy package ready"
+          echo "    Codebase: $(du -h deploy/aistore-codebase.tar.gz | cut -f1)"
+          echo "    Files:    $(find deploy/standalone -type f | wc -l)"
+
+      - name: Parse credentials
+        env:
+          HG_CREDS: ${{ secrets.CREDENCIAIS_HOSTGATOR }}
+        run: |
+          eval $(python3 -c "
+          import os, json
+          c = json.loads(os.environ['HG_CREDS'])
+          print(f\"HOST={c.get('host','')}\")
+          print(f\"USER={c.get('user','')}\")
+          print(f\"PASS={c.get('password','')}\")
+          print(f\"PORT={c.get('port', 21)}\")
+          ")
+          if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$PASS" ]; then
+            echo "::error::Missing host/user/password"; exit 1
+          fi
+          echo "HOST=$HOST" >> $GITHUB_ENV
+          echo "USER=$USER" >> $GITHUB_ENV
+          echo "PASS=$PASS" >> $GITHUB_ENV
+          echo "PORT=$PORT" >> $GITHUB_ENV
+
+      - name: Install lftp
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+
+      # ═══════════════════════════════════════════════════════════
+      # DEPLOY: CGI Gateway + .htaccess
+      # ═══════════════════════════════════════════════════════════
+      - name: Deploy CGI gateway and .htaccess
+        run: |
+          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" <<LFTP_EOF
+          set ftp:ssl-force true
+          set ssl:verify-certificate no
+          set net:timeout 60
+
+          # Create aistore directory
+          mkdir -p public_html/aistore
+
+          # Upload CGI gateway
+          cd deploy
+          put api.cgi -o public_html/aistore/api.cgi
+          chmod 755 public_html/aistore/api.cgi
+
+          # Upload .htaccess
+          put .htaccess -o public_html/aistore/.htaccess
+
+          # Upload setup script
+          put setup_aistore.sh -o public_html/aistore/setup_aistore.sh
+          chmod 755 public_html/aistore/setup_aistore.sh
+
+          bye
+          LFTP_EOF
+          echo "[+] CGI gateway deployed"
+
+      # ═══════════════════════════════════════════════════════════
+      # DEPLOY: Codebase (standalone server)
+      # ═══════════════════════════════════════════════════════════
+      - name: Upload codebase to server
+        run: |
+          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" <<LFTP_EOF
+          set ftp:ssl-force true
+          set ssl:verify-certificate no
+          set net:timeout 120
+
+          cd deploy
+          put aistore-codebase.tar.gz -o public_html/aistore-codebase.tar.gz
+
+          bye
+          LFTP_EOF
+          echo "[+] Codebase uploaded"
+
+      # ═══════════════════════════════════════════════════════════
+      # SETUP: Install Node.js + deps on server
+      # ═══════════════════════════════════════════════════════════
+      - name: Trigger server setup
+        run: |
+          echo "[+] Triggering first request to start setup..."
+          echo "[+] The CGI gateway will auto-run setup_aistore.sh on first hit"
+          echo "[+] Visit: https://www.mybait.org/aistore/"
+          echo "[+] Health:  https://www.mybait.org/aistore/api/health"
+
+      # ═══════════════════════════════════════════════════════════
+      # VERIFICATION
+      # ═══════════════════════════════════════════════════════════
+      - name: Verify deployment
+        run: |
+          echo "[+] Verifying AI Store deployment..."
+          echo "[+] Waiting 5s for CGI to initialize..."
+          sleep 5
+
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://www.mybait.org/aistore/" 2>/dev/null || echo "000")
+          echo "  AI Store page:     HTTP $STATUS"
+
+          echo ""
+          echo "========================================"
+          echo "  AI Store Deploy Complete"
+          echo "========================================"
+          echo "  Store:   https://www.mybait.org/aistore/"
+          echo "  Health:  https://www.mybait.org/aistore/api/health"
+          echo "  Version: https://www.mybait.org/aistore/api/version"
+          echo "  Products:https://www.mybait.org/aistore/api/products"
+          echo "  b'AI'tcoin: https://www.mybait.org/api/api/v1/status"
+          echo "========================================"
+
+      - name: Deploy summary
+        if: always()
+        run: |
+          echo ""
+          echo "=== Deployment Summary ==="
+          echo "Commit: ${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Triggered by: ${{ github.actor }}"
+          echo "Time: $(date -u)"

@@ -1,6 +1,9 @@
 import { db } from '@/lib/db'
 import { NextResponse } from 'next/server'
 import { logger } from '@/lib/logger'
+import { checkBaitcoinHealth } from '@/lib/baitcoin-api'
+
+export const dynamic = 'force-dynamic'
 
 export async function GET() {
   const start = Date.now()
@@ -10,27 +13,39 @@ export async function GET() {
       db.agent.count(),
       db.transaction.count(),
     ])
+
+    // Check b'AI'tcoin daemon connectivity
+    const baitHealth = await checkBaitcoinHealth()
+
     const latency = Date.now() - start
 
-    logger.info('health_check', { latency_ms: latency, products: productCount, agents: agentCount })
+    logger.info('health_check', { latency_ms: latency, products: productCount, agents: agentCount, bait_online: baitHealth.online })
 
     return NextResponse.json({
       status: 'ok',
-      version: '0.7.0-alpha',
+      version: '0.8.0-alpha',
       timestamp: new Date().toISOString(),
       latency_ms: latency,
       uptime_s: process.uptime(),
+      deployment: 'hostgator-cgi',
       services: {
         database: 'connected',
         pulsar_sse: 'active',
-        baitcoin_mainnet: 'simulated',
-        bait_sdk: 'v1-simulated',
+        baitcoin_daemon: baitHealth.online ? 'connected' : 'offline',
+        baitcoin_latency_ms: baitHealth.latencyMs,
+        bait_sdk: baitHealth.online ? 'v2-live' : 'v2-fallback-simulated',
         sandbox: 'active',
         reputation_engine: 'active',
         error_resolver: 'active',
         agent_metrics: 'active',
         api_discovery: 'active',
       },
+      baitcoin: baitHealth.online ? {
+        block_height: baitHealth.status?.block_height,
+        agents_count: baitHealth.status?.agents_count,
+        transactions_count: baitHealth.status?.transactions_count,
+        network: baitHealth.status?.network,
+      } : { status: 'offline', note: 'AI Store operates in simulated wallet mode' },
       counts: {
         products: productCount,
         agents: agentCount,

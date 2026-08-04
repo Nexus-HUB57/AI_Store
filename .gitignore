@@ -57,7 +57,11 @@ server.log
 /upload/
 /output/
 /tool-results/
-/db/
+# Keep seeded DB for deployment (db/custom.db is tracked)
+/db/*.db-journal
+/db/*.db-wal
+/db/*.db-shm
 download/
 examples/
 tests/*.sh
+baitcoin-repo/
