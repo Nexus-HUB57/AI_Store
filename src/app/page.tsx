@@ -1,8 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { toast } from 'sonner'
+import { motion, AnimatePresence } from '@/components/store/motion-wrapper'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -28,7 +27,11 @@ import { useCartStore } from '@/lib/cart-store'
 import { useAuthStore } from '@/lib/auth-store'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-const AnimatedCounter = dynamic(() => import('@/components/store/animated-counter').then(m => ({ default: m.AnimatedCounter })), { ssr: false, loading: () => <span>...</span> })
+const ScrollToTopButton = dynamic(() => import('@/components/store/scroll-to-top').then(m => ({ default: m.ScrollToTopButton })), { ssr: false })
+const ProductCard = dynamic(() => import('@/components/store/product-card').then(m => ({ default: m.ProductCard })), { ssr: false, loading: () => <Card className="border-white/[0.05] bg-zinc-900/30 h-52"><CardContent className="p-0"/></Card> })
+const StatCard = dynamic(() => import('@/components/store/stat-card').then(m => ({ default: m.StatCard })), { ssr: false, loading: () => <Card className="border-white/[0.05] bg-zinc-900/30"><CardContent className="p-4"/></Card> })
+const MiniStat = dynamic(() => import('@/components/store/stat-card').then(m => ({ default: m.MiniStat })), { ssr: false, loading: () => <div className="flex items-center gap-3 p-3.5 rounded-xl bg-zinc-900/60 border border-white/[0.05]"><div className="w-10 h-10 rounded-xl bg-zinc-800 animate-pulse"/></div> })
+const FeaturedProduct = dynamic(() => import('@/components/store/featured-product').then(m => ({ default: m.FeaturedProduct })), { ssr: false })
 const ReviewList = dynamic(() => import('@/components/store/review-list').then(m => ({ default: m.ReviewList })), { ssr: false, loading: () => <div className="flex items-center justify-center py-8"><div className="w-5 h-5 border-2 border-zinc-700 border-t-emerald-500 rounded-full animate-spin" /></div> })
 const ProductDetailDialog = dynamic(() => import('@/components/store/product-detail-dialog').then(m => ({ default: m.ProductDetailDialog })), { ssr: false, loading: () => null })
 import { Progress } from '@/components/ui/progress'
@@ -69,7 +72,6 @@ const SEGMENT_COLORS: Record<string, string> = {
 
 const BAIT_PER_SAT = 100
 const toBait = (sats: number) => (sats / BAIT_PER_SAT).toFixed(0)
-const baitLabel = (sats: number) => (sats / BAIT_PER_SAT).toFixed(0) + ' BAIT'
 
 const CATEGORY_ICONS: Record<string, string> = {
   AGENT_APPS: '🤖',
@@ -107,177 +109,8 @@ function getDiscountBadge(purchaseCount: number, idx: number): { label: string; 
 /*  Animation Variants                                                 */
 /* ================================================================== */
 
-const cardVariants = {
-  hidden: { opacity: 0, y: 24, scale: 0.96 },
-  visible: (i: number) => ({
-    opacity: 1, y: 0, scale: 1,
-    transition: { delay: i * 0.025, duration: 0.45, ease: [0.25, 0.46, 0.45, 0.94] as const },
-  }),
-}
-
-const slideUp = {
-  hidden: { opacity: 0, y: 12 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.35 } },
-}
-
 const staggerContainer = {
   hidden: {}, visible: { transition: { staggerChildren: 0.04 } },
-}
-
-/* ================================================================== */
-/*  ScrollToTop                                                        */
-/* ================================================================== */
-
-function ScrollToTopButton() {
-  const [visible, setVisible] = useState(false)
-  useEffect(() => {
-    const onScroll = () => setVisible(window.scrollY > 600)
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [])
-  return (
-    <AnimatePresence>
-      {visible && (
-        <motion.button
-          initial={{ opacity: 0, scale: 0.8, y: 16 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.8, y: 16 }}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-          className="fixed bottom-6 left-6 z-50 w-10 h-10 rounded-xl bg-zinc-800/90 backdrop-blur-xl border border-white/10 flex items-center justify-center text-zinc-400 hover:text-emerald-400 hover:border-emerald-500/30 transition-colors shadow-lg"
-        >
-          <ChevronUp className="w-4 h-4" />
-        </motion.button>
-      )}
-    </AnimatePresence>
-  )
-}
-
-/* ================================================================== */
-/*  PulsarBar                                                          */
-/* ================================================================== */
-
-function PulsarBar({ value, productId, liveUpdates }: { value: number; productId: string; liveUpdates: Record<string, number> }) {
-  const liveValue = liveUpdates[productId] ?? value
-  const color = liveValue >= 90 ? 'bg-emerald-500' : liveValue >= 70 ? 'bg-amber-500' : 'bg-rose-500'
-  const isLive = productId in liveUpdates
-  return (
-    <div className="flex items-center gap-2">
-      <div className="h-1.5 flex-1 rounded-full bg-white/[0.06] overflow-hidden">
-        <motion.div
-          className={`h-full rounded-full ${color} ${isLive ? 'shadow-sm shadow-emerald-500/30' : ''}`}
-          initial={false}
-          animate={{ width: `${liveValue}%` }}
-          transition={{ duration: 0.7, ease: 'easeOut' }}
-        />
-      </div>
-      <span className={`text-[11px] font-mono w-10 text-right tabular-nums ${isLive ? 'text-emerald-400' : 'text-zinc-500'}`}>
-        {liveValue.toFixed(0)}%
-        {isLive && (
-          <motion.span
-            className="ml-0.5 inline-block w-1.5 h-1.5 rounded-full bg-emerald-400"
-            animate={{ opacity: [1, 0.3, 1], scale: [1, 0.7, 1] }}
-            transition={{ duration: 1.5, repeat: Infinity }}
-          />
-        )}
-      </span>
-    </div>
-  )
-}
-
-/* ================================================================== */
-/*  ProductCard                                                        */
-/* ================================================================== */
-
-function ProductCard({ product, onClick, discountBadge, index }: {
-  product: Product; onClick: () => void; discountBadge?: { label: string; color: string } | null; index: number
-}) {
-  const addItem = useCartStore((s) => s.addItem)
-  const items = useCartStore((s) => s.items)
-  const inCart = items.some((i) => i.id === product.id)
-
-  const handleAddToCart = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (inCart) { toast.info(`${product.iconEmoji} ${product.nome} já está no carrinho`); return }
-    addItem({ id: product.id, nome: product.nome, precoSats: product.precoSats, iconEmoji: product.iconEmoji, segmento: product.segmento, version: product.version, authorAgent: product.authorAgent })
-    toast.success(`${product.iconEmoji} Adicionado`, { description: `${product.nome} — ${baitLabel(product.precoSats)}` })
-  }
-
-  return (
-    <motion.div variants={cardVariants} custom={index} initial="hidden" animate="visible" whileHover={{ y: -4, transition: { duration: 0.2 } }} whileTap={{ scale: 0.985 }} className="cursor-pointer" onClick={onClick}>
-      <Card className="group card-glow-hover border-white/[0.07] bg-gradient-to-br from-white/[0.03] to-transparent hover:border-emerald-500/20 hover:from-white/[0.06] transition-all duration-300 overflow-hidden h-full">
-        <CardContent className="p-4 flex flex-col h-full">
-          <div className="flex items-start justify-between gap-3 mb-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <motion.div className="text-2xl shrink-0 w-11 h-11 flex items-center justify-center rounded-xl bg-gradient-to-br from-white/[0.08] to-white/[0.03] border border-white/[0.05]" whileHover={{ rotate: [0, -8, 8, 0], transition: { duration: 0.4 } }}>
-                {product.iconEmoji || '📦'}
-              </motion.div>
-              <div className="min-w-0 flex-1">
-                <h3 className="font-semibold text-[13px] leading-tight truncate text-foreground group-hover:text-emerald-300 transition-colors duration-200">{product.nome}</h3>
-                <p className="text-[11px] text-zinc-500 mt-0.5 font-mono">v{product.version} • {product.authorAgent}</p>
-              </div>
-            </div>
-            {product.featured && (
-              <motion.div animate={{ rotate: [0, 15, -15, 0] }} transition={{ duration: 3, repeat: Infinity, repeatDelay: 5 }}>
-                <Sparkles className="w-4 h-4 text-amber-400" />
-              </motion.div>
-            )}
-          </div>
-          <p className="text-xs text-zinc-400 line-clamp-2 mb-3 leading-relaxed min-h-[2.5rem]">{product.coreBusiness}</p>
-          <Badge variant="outline" className={`text-[10px] mb-3 border self-start ${SEGMENT_COLORS[product.segmento] || ''}`}>{product.segmento.replace(/_/g, ' ')}</Badge>
-          <div className="space-y-2.5 mt-auto">
-            <PulsarBar value={product.pulsarEnergy} productId={product.id} liveUpdates={{}} />
-            <div className="flex items-center justify-between text-[11px] text-zinc-500">
-              <span className="flex items-center gap-1"><Download className="w-3 h-3" /> {formatNumber(product.downloads)}</span>
-              <span className="flex items-center gap-1"><Star className="w-3 h-3" /> {product.rating.toFixed(1)}</span>
-              <span className="flex items-center gap-1"><Activity className="w-3 h-3" /> {formatNumber(product.a2aExecutions)}</span>
-            </div>
-            <div className="flex items-center justify-between pt-2.5 border-t border-white/[0.04]">
-              <div className="flex items-center gap-1.5">
-                {discountBadge ? (
-                  <>
-                    <span className="text-[10px] font-mono text-zinc-600 line-through">{toBait(product.precoSats)} BAIT</span>
-                    <Badge className={`text-[8px] px-1 py-0 border ${discountBadge.color}`}>{discountBadge.label}</Badge>
-                    <span className="text-xs font-bold font-mono text-emerald-400">
-                      {discountBadge.label === 'GRÁTIS' ? '0 BAIT' : toBait(Math.floor(product.precoSats / 2)) + ' BAIT'}
-                    </span>
-                  </>
-                ) : (
-                  <span className="text-sm font-bold font-mono text-emerald-400">{toBait(product.precoSats)} <span className="text-[10px] text-zinc-500 font-normal">BAIT</span></span>
-                )}
-              </div>
-              <Button size="sm" variant="ghost" className={`h-7 text-[11px] px-2.5 transition-all rounded-lg ${inCart ? 'text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/15' : 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/10'}`} onClick={handleAddToCart}>
-                <motion.span animate={inCart ? { scale: [1, 1.3, 1] } : {}} transition={{ duration: 0.3 }}>{inCart ? <ShoppingCart className="w-3 h-3 mr-1" /> : <Plus className="w-3 h-3 mr-1" />}</motion.span>
-                {inCart ? 'No Carrinho' : 'Adicionar'}
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </motion.div>
-  )
-}
-
-/* ================================================================== */
-/*  StatCard & MiniStat                                                */
-/* ================================================================== */
-
-function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
-  return (
-    <div className="flex items-center gap-2.5 p-2.5 rounded-lg bg-zinc-900/80 border border-white/[0.04]">
-      {icon}<div><p className="text-[10px] text-zinc-500 uppercase">{label}</p><p className="text-sm font-semibold text-zinc-200 font-mono tabular-nums">{value}</p></div>
-    </div>
-  )
-}
-
-function MiniStat({ icon, label, value, pulse, animatedValue }: { icon: React.ReactNode; label: string; value: string; pulse?: boolean; animatedValue?: number }) {
-  const shouldAnimate = animatedValue !== undefined && animatedValue > 0 && typeof animatedValue === 'number' && !value.includes('%') && !value.includes('.')
-  return (
-    <motion.div variants={slideUp} initial="hidden" animate="visible" whileHover={{ scale: 1.02, transition: { duration: 0.2 } }} className="flex items-center gap-3 p-3.5 rounded-xl bg-zinc-900/60 border border-white/[0.05] hover:border-white/[0.1] transition-colors">
-      <div className="shrink-0">{icon}</div><div><p className="text-[10px] text-zinc-500 uppercase tracking-wider flex items-center gap-1">{label}{pulse && <motion.span className="w-1.5 h-1.5 rounded-full bg-emerald-400" animate={{ opacity: [1, 0.2, 1] }} transition={{ duration: 2, repeat: Infinity }} />}</p><p className="text-sm font-bold font-mono text-zinc-200 tabular-nums">{shouldAnimate ? <AnimatedCounter target={animatedValue} /> : value}</p></div>
-    </motion.div>
-  )
 }
 
 /* ================================================================== */
@@ -856,56 +689,8 @@ export default function Home() {
 
         {/* Featured Banner */}
         <AnimatePresence>
-          {showFeatured && !search && segmento === 'all' && featuredProducts.length > 0 && (
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 12 }}
-              className="mb-6"
-            >
-              <div className="relative rounded-2xl overflow-hidden border border-amber-500/20 bg-gradient-to-r from-amber-500/[0.07] via-emerald-500/[0.03] to-cyan-500/[0.07] p-5">
-                <div className="absolute inset-0 animate-shimmer" />
-                <div className="relative">
-                  <div className="flex items-center gap-2 mb-3">
-                    <motion.div animate={{ rotate: [0, 360] }} transition={{ duration: 8, repeat: Infinity, ease: "linear" }}>
-                      <Sparkles className="w-4 h-4 text-amber-400" />
-                    </motion.div>
-                    <h3 className="text-sm font-bold text-zinc-100">Produtos em Destaque</h3>
-                    <Badge variant="outline" className="text-[9px] font-mono bg-amber-500/10 text-amber-400 border-amber-500/20 ml-1">CURATED</Badge>
-                    <Button variant="ghost" size="icon" className="h-6 w-6 ml-auto text-zinc-500" onClick={() => setShowFeatured(false)}>
-                      <X className="w-3.5 h-3.5" />
-                    </Button>
-                  </div>
-                  <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
-                    {featuredProducts.map(fp => (
-                      <motion.div
-                        key={fp.id}
-                        whileHover={{ scale: 1.03, y: -2 }}
-                        whileTap={{ scale: 0.97 }}
-                        className="shrink-0 w-52 p-3 rounded-xl bg-zinc-900/80 border border-white/[0.06] cursor-pointer hover:border-amber-500/30 transition-all group"
-                        onClick={() => setSelectedProduct(fp)}
-                      >
-                        <div className="flex items-center gap-2.5 mb-2.5">
-                          <motion.span className="text-2xl" whileHover={{ scale: 1.15, rotate: [0, -8, 8, 0] }} transition={{ duration: 0.4 }}>{fp.iconEmoji}</motion.span>
-                          <div className="min-w-0">
-                            <p className="text-xs font-semibold text-zinc-200 truncate group-hover:text-amber-300 transition-colors">{fp.nome}</p>
-                            <p className="text-[10px] text-zinc-600 font-mono">v{fp.version} • {fp.authorAgent}</p>
-                          </div>
-                        </div>
-                        <Badge variant="outline" className={`text-[9px] mb-2 border ${SEGMENT_COLORS[fp.segmento] || ''}`}>{fp.segmento.replace(/_/g, ' ')}</Badge>
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold font-mono text-emerald-400">{toBait(fp.precoSats)} BAIT</span>
-                          <div className="flex items-center gap-2">
-                            <div className="flex items-center gap-0.5"><Star className="w-3 h-3 text-amber-400" /><span className="text-[10px] text-zinc-400 font-mono">{fp.rating.toFixed(1)}</span></div>
-                            <div className="flex items-center gap-0.5"><Zap className="w-3 h-3 text-emerald-400" /><span className="text-[10px] text-zinc-400 font-mono">{fp.pulsarEnergy.toFixed(0)}%</span></div>
-                          </div>
-                        </div>
-                      </motion.div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </motion.div>
+          {featuredProducts.length > 0 && (
+            <FeaturedProduct products={featuredProducts} onDismiss={() => setShowFeatured(false)} onSelectProduct={setSelectedProduct} />
           )}
         </AnimatePresence>
 
