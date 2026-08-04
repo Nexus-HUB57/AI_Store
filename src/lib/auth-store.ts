@@ -39,9 +39,17 @@ export const useAuthStore = create<AuthStore>()(
       login: async (address: string, displayName: string, referralCode?: string) => {
         set({ isLoading: true })
         try {
+          // Read CSRF token from cookie (non-httpOnly) for double-submit pattern
+          const csrfToken = document.cookie
+            .split('; ')
+            .find((row) => row.startsWith('csrf_token='))
+            ?.split('=')[1] || ''
           const res = await fetch('/api/auth/login', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': csrfToken,
+            },
             body: JSON.stringify({ address, displayName, referralCode }),
           })
           const data = await res.json()
@@ -62,8 +70,15 @@ export const useAuthStore = create<AuthStore>()(
       },
 
       logout: () => {
+        const csrfToken = document.cookie
+          .split('; ')
+          .find((row) => row.startsWith('csrf_token='))
+          ?.split('=')[1] || ''
         set({ agent: null, isAuthenticated: false, isNewUser: false })
-        fetch('/api/auth/logout', { method: 'POST' }).catch(() => {})
+        fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: { 'X-CSRF-Token': csrfToken },
+        }).catch(() => {})
       },
 
       updateBalance: (delta: number) => {

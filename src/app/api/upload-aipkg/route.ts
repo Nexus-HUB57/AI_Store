@@ -3,11 +3,19 @@ import { db } from '@/lib/db'
 import { v4 as uuidv4 } from 'uuid'
 import { writeFile, mkdir } from 'fs/promises'
 import path from 'path'
+import { verifySession } from '@/lib/session'
 
 const UPLOAD_DIR = path.join(process.cwd(), 'db', 'aipkg-uploads')
 
 export async function POST(req: NextRequest) {
   try {
+    // ── Auth guard: verify session ──
+    const sessionToken = req.cookies.get('agent_id')?.value
+    const agentId = verifySession(sessionToken)
+    if (!agentId) {
+      return NextResponse.json({ error: 'Autenticacao necessaria para upload' }, { status: 401 })
+    }
+
     await mkdir(UPLOAD_DIR, { recursive: true })
 
     const formData = await req.formData()
@@ -39,12 +47,19 @@ export async function POST(req: NextRequest) {
     const filePath = path.join(UPLOAD_DIR, safeFileName)
     await writeFile(filePath, fileBytes)
 
-    const slug = nome
+    const baseSlug = nome
       ? nome
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, '-')
           .replace(/^-|-$/g, '')
       : `pkg-${productId.slice(0, 8)}`
+
+    // Handle slug collision: append random suffix if slug exists
+    let slug = baseSlug
+    const existing = await db.product.findUnique({ where: { slug } })
+    if (existing) {
+      slug = `${baseSlug}-${productId.slice(0, 6)}`
+    }
 
     const product = await db.product.create({
       data: {

@@ -10,8 +10,10 @@ const store = new Map<string, RateLimitEntry>()
 // Cleanup stale entries every 60s
 setInterval(() => {
   const now = Date.now()
+  const windowMs = 60000
   for (const [key, entry] of store) {
-    entry.timestamps = entry.timestamps.filter(t => now - t < entry.timestamps[0] + 60000)
+    // Remove timestamps outside the sliding window
+    entry.timestamps = entry.timestamps.filter(t => now - t < windowMs)
     if (entry.timestamps.length === 0) store.delete(key)
   }
 }, 60000)

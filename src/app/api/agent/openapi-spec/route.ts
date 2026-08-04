@@ -11,7 +11,7 @@ export async function GET() {
       contact: { email: 'agents@nexus-os.io' },
       license: { name: 'Proprietary' },
     },
-    servers: [{ url: 'https://ai-store.nexus-os.io', description: 'Produção' }],
+    servers: [{ url: 'https://www.mybait.org/aistore', description: 'Produção' }],
     paths: {
       '/api/products': {
         get: {

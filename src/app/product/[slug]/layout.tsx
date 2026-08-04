@@ -2,7 +2,7 @@ import { db } from '@/lib/db'
 import type { Metadata } from 'next'
 import { getAllProductSlugs, getProductBySlug } from '@/lib/product-queries'
 
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://ai-store.nexus-os.io'
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.mybait.org/aistore'
 
 interface Props {
   children: React.ReactNode

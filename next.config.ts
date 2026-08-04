@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  basePath: process.env.NEXT_PUBLIC_BASE_PATH || '/aistore',
   reactStrictMode: true,
   poweredByHeader: false,
 
@@ -12,7 +13,6 @@ const nextConfig: NextConfig = {
         source: "/(.*)",
         headers: [
           { key: "X-XSS-Protection", value: "1; mode=block" },
-          { key: "X-Request-ID", value: crypto.randomUUID() },
         ],
       },
     ];

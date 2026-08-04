@@ -2,7 +2,9 @@ import { z } from 'zod'
 
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
-  NEXT_PUBLIC_BASE_URL: z.string().url().optional().default('https://ai-store.nexus-os.io'),
+  SESSION_SECRET: z.string().min(16, 'SESSION_SECRET must be at least 16 chars').optional().default('nexus-aistore-session-secret-change-in-production'),
+  NEXT_PUBLIC_BASE_PATH: z.string().optional().default('/aistore'),
+  NEXT_PUBLIC_BASE_URL: z.string().url().optional().default('https://www.mybait.org/aistore'),
   NODE_ENV: z.enum(['development', 'production', 'test']).optional().default('development'),
   BAIT_PER_SAT: z.coerce.number().int().positive().optional().default(100),
   SIGNUP_BONUS_BAIT: z.coerce.number().int().positive().optional().default(100),

@@ -1,7 +1,7 @@
 import { MetadataRoute } from 'next'
 import { db } from '@/lib/db'
 
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://ai-store.nexus-os.io'
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.mybait.org/aistore'
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const products = await db.product.findMany({

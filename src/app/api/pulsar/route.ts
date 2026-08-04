@@ -4,6 +4,9 @@ import { db } from '@/lib/db'
 const clients = new Set<ReadableStreamDefaultController>()
 let broadcastInterval: ReturnType<typeof setInterval> | null = null
 
+const PULSAR_INTERVAL_MS = parseInt(process.env.PULSAR_INTERVAL_MS || '30000', 10)
+const PULSAR_BATCH_SIZE = parseInt(process.env.PULSAR_BATCH_SIZE || '3', 10)
+
 function startBroadcast() {
   if (broadcastInterval) return
 
@@ -20,9 +23,10 @@ function startBroadcast() {
       const count = await db.product.count()
       if (count === 0) return
 
-      const skip = Math.floor(Math.random() * Math.max(0, count - 5))
+      const batchSize = Math.min(PULSAR_BATCH_SIZE, count)
+      const skip = Math.floor(Math.random() * Math.max(0, count - batchSize))
       const products = await db.product.findMany({
-        take: Math.min(5, count),
+        take: batchSize,
         skip: Math.max(0, skip),
         select: { id: true, pulsarEnergy: true, nome: true },
       })
@@ -65,7 +69,7 @@ function startBroadcast() {
     } catch (err) {
       console.error('Pulsar broadcast error:', err)
     }
-  }, 3000)
+  }, PULSAR_INTERVAL_MS)
 }
 
 export async function GET(req: NextRequest) {
@@ -77,7 +81,7 @@ export async function GET(req: NextRequest) {
       const encoder = new TextEncoder()
       controller.enqueue(
         encoder.encode(
-          `data: ${JSON.stringify({ type: 'connected', message: 'Pulsar Energy stream active' })}\n\n`
+          `data: ${JSON.stringify({ type: 'connected', message: 'Pulsar Energy stream active', intervalMs: PULSAR_INTERVAL_MS })}\n\n`
         )
       )
 

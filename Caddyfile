@@ -1,17 +1,12 @@
 # AI Store Nexus AI-OS — Caddy Reverse Proxy with HTTPS
-# Development: self-signed certs from ./certs/
-# Production: automatic Let's Encrypt for ai-store.nexus-os.io
+# Production: www.mybait.org/aistore with auto-TLS via Let's Encrypt
+# Development: self-signed certs on port 3443
 
-# ── HTTPS on port 443 (production with auto-TLS) ──
-ai-store.nexus-os.io {
-	tls internal
-
-	@transform_port_query {
-		query XTransformPort=*
-	}
-
-	handle @transform_port_query {
-		reverse_proxy localhost:{query.XTransformPort} {
+# ── Production: www.mybait.org with auto-TLS ──
+www.mybait.org {
+	# Strip /aistore prefix and proxy to Next.js
+	handle_path /aistore* {
+		reverse_proxy localhost:3000 {
 			header_up Host {host}
 			header_up X-Forwarded-For {remote_host}
 			header_up X-Forwarded-Proto {scheme}
@@ -19,12 +14,14 @@ ai-store.nexus-os.io {
 		}
 	}
 
-	handle {
+	# SSE passthrough (no buffering)
+	handle /aistore/api/pulsar {
 		reverse_proxy localhost:3000 {
 			header_up Host {host}
 			header_up X-Forwarded-For {remote_host}
 			header_up X-Forwarded-Proto {scheme}
 			header_up X-Real-IP {remote_host}
+			flush_interval -1
 		}
 	}
 }

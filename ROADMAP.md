@@ -4,7 +4,7 @@
 
 This roadmap defines the path from the current Alpha state (v1.0.0-beta, 1,179 products with intelligent BAIT pricing 20-100, PhD-level UX with Framer Motion, auth, referrals, reviews, and seller dashboard) to a fully operational production marketplace integrated with the b'AI'tcoin (BAIT) mainnet for real AI-to-Agent commercial transactions.
 
-**Current Status**: Alpha v0.7.0-alpha (Production Hardened — 1,504 products, 23 API endpoints, 26 deps, 171 tests, 5-stage CI, HTTPS, ISR) | **Target**: Production Mainnet Launch | **Total Estimated Timeline**: 8-14 weeks
+**Current Status**: v0.8.0-alpha (Surgical Audit Hardened — HostGator-ready, basePath /aistore, signed sessions, CSRF fixed, Pulsar tuned, domain www.mybait.org) | **Target**: Production Go Live on HostGator at https://www.mybait.org/aistore | **Total Estimated Timeline**: 6-10 weeks (compressed from 8-14 after Phase 0 completion)
 
 ### What's Been Completed (Pre-Phase 0 + Phase 0 Partial)
 
@@ -56,6 +56,41 @@ This roadmap defines the path from the current Alpha state (v1.0.0-beta, 1,179 p
 - [x] TypeScript strict mode
 - [x] Build: 0 errors, 1,533 routes compiled (29 dynamic + 1,504 SSG)
 
+### Surgical Audit Fixes (v0.8.0-alpha)
+
+**CRITICAL fixes applied:**
+
+- [x] `basePath: '/aistore'` configured in next.config.ts for HostGator deployment
+- [x] All hardcoded URLs updated to `https://www.mybait.org/aistore` (sitemap, robots, layout, OpenAPI, env defaults)
+- [x] CSRF cookie changed from `httpOnly: true` → `httpOnly: false` (client can read for X-CSRF-Token header)
+- [x] Auth login/logout now sends `X-CSRF-Token` header (was missing — login POST was broken)
+- [x] Session cookie now uses HMAC-SHA256 signed tokens (`agentId.signature` format, constant-time verification)
+- [x] `/api/upload-aipkg` auth guard added (was publicly accessible — anyone could upload products)
+- [x] Referral bonus wrapped in `db.$transaction()` (was 3 separate non-atomic operations)
+- [x] Pulsar SSE interval configurable via env (default 30s, was hardcoded 3s — 300+ DB writes/min on SQLite)
+- [x] Caddyfile rewritten for `www.mybait.org` with `handle_path /aistore*` and SSE passthrough (`flush_interval -1`)
+- [x] Debug backdoor `@transform_port_query` removed from Caddyfile
+
+**HIGH fixes applied:**
+
+- [x] Rate limiter cleanup bug fixed (NaN when empty array after filter)
+- [x] Static `X-Request-ID` removed from next.config.ts (was baked at build time; middleware handles per-request)
+- [x] IP extraction prefers `X-Real-IP` (Caddy) over spoofable `X-Forwarded-For`
+- [x] Cart `newBalance` now re-reads from DB after transaction (was stale pre-tx balance)
+- [x] Auth store `role` field not persisted to localStorage (prevents client-side privilege escalation)
+- [x] CSP `unsafe-inline/unsafe-eval` documented as known Next.js limitation
+- [x] Cookie `path` updated to `basePath + '/'` for session and CSRF cookies
+- [x] PostgreSQL port bound to `127.0.0.1:5432` (was `0.0.0.0`)
+
+**MEDIUM fixes applied:**
+
+- [x] Product search lowercased (SQLite LIKE is case-insensitive for ASCII but lowercase query ensures consistency)
+- [x] `db:push --accept-data-loss` flag removed from npm script
+- [x] Seller identification improved with null-safety and address comparison
+- [x] Upload slug collision handling added (appends UUID suffix if slug exists)
+- [x] `SESSION_SECRET` added to Zod env validation schema
+- [x] `PULSAR_BATCH_SIZE` env var now consumed by Pulsar SSE route
+
 ---
 
 ## Phase Overview
@@ -85,26 +120,26 @@ Establish professional development workflows, automated testing, containerized b
 
 - [x] README.md with technical documentation (PhD-level)
 - [x] ROADMAP.md with go-live plan
-- [ ] CONTRIBUTING.md with development guidelines
+- [x] CONTRIBUTING.md with development guidelines
 - [ ] `.editorconfig` for cross-IDE consistency
-- [ ] `tsconfig.json` strict mode enablement
-- [ ] ESLint flat config with Next.js + import rules
+- [x] `tsconfig.json` strict mode enablement
+- [x] ESLint flat config with Next.js + import rules
 - **Deliverable**: Clean, well-documented repository
 
 #### 0.2 Docker & Build Pipeline (Day 2-4)
 
-- [ ] Multi-stage Dockerfile (deps → build → standalone runtime)
-- [ ] `docker-compose.yml` (store + b'AI'tcoin daemon + SQLite volume)
-- [ ] GitHub Actions CI (lint, type-check, build, test on push/PR)
+- [x] Multi-stage Dockerfile (deps -> build -> standalone runtime)
+- [x] `docker-compose.yml` (store + b'AI'tcoin daemon + SQLite volume)
+- [x] GitHub Actions CI (lint, type-check, build, test on push/PR)
 - [ ] GitHub Actions CD (build image, push to GHCR on merge to main)
-- [ ] Pre-commit hooks (lint-staged + husky)
+- [x] Pre-commit hooks (lint-staged + husky)
 - **Deliverable**: Automated CI/CD pipeline
 
 #### 0.3 Database Migrations (Day 4-5)
 
-- [ ] Migrate from `prisma db push` to `prisma migrate dev` for versioned migrations
-- [ ] Seed script as a migration (versioned, reproducible)
-- [ ] PostgreSQL adapter for production (Prisma provider swap)
+- [x] Migrate from `prisma db push` to `prisma migrate dev` for versioned migrations
+- [x] Seed script as a migration (versioned, reproducible)
+- [x] PostgreSQL adapter for production (Prisma provider swap)
 - [ ] Connection pooling with PgBouncer or Prisma's built-in pool
 - **Deliverable**: Production-ready database layer
 
@@ -378,11 +413,13 @@ Conduct thorough security review and implement defense-in-depth measures before 
 
 #### 6.1 Application Security (Week 24-25)
 
-- [ ] Implement rate limiting per IP and per agent identity
-- [ ] Add CSRF protection for all state-changing endpoints
-- [ ] Implement Content Security Policy (CSP) headers
-- [ ] Add request validation with Zod schemas on all API routes
-- [ ] Create security middleware ( Helmet.js equivalent for Next.js)
+- [x] Implement rate limiting per IP and per agent identity
+- [x] Add CSRF protection for all state-changing endpoints
+- [x] Implement Content Security Policy (CSP) headers
+- [x] Add request validation with Zod schemas on all API routes
+- [x] Create security middleware ( Helmet.js equivalent for Next.js)
+- [x] HMAC-signed session tokens (v0.8.0)
+- [ ] Migrate to nonce-based CSP (replace unsafe-inline/unsafe-eval)
 - **Deliverable**: Hardened application layer
 
 #### 6.2 Supply Chain Security (Week 25-26)
@@ -491,38 +528,38 @@ Execute the production deployment with real domain, CDN, SSL, and full b'AI'tcoi
 
 ## Key Performance Indicators
 
-| KPI                        | Current (v0.7.0-alpha)      | Phase 7 (Target)       |
-| -------------------------- | --------------------------- | ---------------------- |
-| Products in catalog        | 1,504                       | 5,000+                 |
-| Price range (BAIT)         | 20-100 (avg: 62)            | 20-100 (market-driven) |
-| API response time (P95)    | ~200ms                      | < 100ms                |
-| SSE concurrent connections | Untested                    | 10,000+                |
-| Uptime                     | N/A                         | 99.9%                  |
-| Payment settlement         | Simulated (atomic)          | On-chain (30s)         |
-| .aipkg execution           | Upload only                 | Sandboxed WASM32-WASI  |
-| Agent authentication       | Cookie-based session        | Moltbook JWT + Schnorr |
-| Test coverage              | 171 unit + 4 E2E            | > 80%                  |
-| Security audit             | Headers + CSRF + rate-limit | Full audit report      |
-| Daily active agents        | 0                           | 500+                   |
-| Daily transactions         | 0                           | 1,000+                 |
-| Daily revenue (BAIT)       | 0                           | 100K+ sats             |
+| KPI                        | Current (v0.8.0-alpha)                        | Phase 7 (Target)       |
+| -------------------------- | --------------------------------------------- | ---------------------- |
+| Products in catalog        | 1,504                                         | 5,000+                 |
+| Price range (BAIT)         | 20-100 (avg: 62)                              | 20-100 (market-driven) |
+| API response time (P95)    | ~200ms                                        | < 100ms                |
+| SSE concurrent connections | Untested                                      | 10,000+                |
+| Uptime                     | N/A                                           | 99.9%                  |
+| Payment settlement         | Simulated (atomic)                            | On-chain (30s)         |
+| .aipkg execution           | Upload only                                   | Sandboxed WASM32-WASI  |
+| Agent authentication       | HMAC-signed cookie session                    | Moltbook JWT + Schnorr |
+| Test coverage              | 171 unit + 4 E2E                              | > 80%                  |
+| Security audit             | Headers + CSRF + rate-limit + signed sessions | Full audit report      |
+| Daily active agents        | 0                                             | 500+                   |
+| Daily transactions         | 0                                             | 1,000+                 |
+| Daily revenue (BAIT)       | 0                                             | 100K+ sats             |
 
 ---
 
 ## Dependencies & Prerequisites
 
-| Dependency                    | Version | Phase   | Status                                                |
-| ----------------------------- | ------- | ------- | ----------------------------------------------------- |
-| Next.js                       | 16.1+   | All     | ✅ Installed                                          |
-| Prisma                        | 6.x     | 0, 3    | ✅ Installed                                          |
-| b'AI'tcoin daemon             | 0.4.0+  | 1, 4, 7 | 🔄 Separate repo                                      |
-| PostgreSQL                    | 15+     | 0.3, 7  | ✅ Ready (docker-compose.prod.yml + migration script) |
-| Redis                         | 7+      | 5, 7    | ⏳ Pending                                            |
-| Wasmtime                      | 15+     | 3       | ⏳ Pending                                            |
-| Docker                        | 24+     | 0, 7    | ✅ Multi-stage Dockerfile + compose                   |
-| Domain (store.mybaitcoin.org) | —       | 7       | ⏳ Acquired                                           |
-| SSL Certificate               | —       | 7       | ⏳ Pending                                            |
-| Cloud Infrastructure          | —       | 7       | ⏳ Pending                                            |
+| Dependency                      | Version | Phase   | Status                                                |
+| ------------------------------- | ------- | ------- | ----------------------------------------------------- |
+| Next.js                         | 16.1+   | All     | ✅ Installed                                          |
+| Prisma                          | 6.x     | 0, 3    | ✅ Installed                                          |
+| b'AI'tcoin daemon               | 0.4.0+  | 1, 4, 7 | 🔄 Separate repo                                      |
+| PostgreSQL                      | 15+     | 0.3, 7  | ✅ Ready (docker-compose.prod.yml + migration script) |
+| Redis                           | 7+      | 5, 7    | ⏳ Pending                                            |
+| Wasmtime                        | 15+     | 3       | ⏳ Pending                                            |
+| Docker                          | 24+     | 0, 7    | ✅ Multi-stage Dockerfile + compose                   |
+| Domain (www.mybait.org/aistore) | —       | 7       | ✅ Acquired (HostGator)                               |
+| SSL Certificate                 | —       | 7       | ✅ Caddy auto-TLS (Let's Encrypt)                     |
+| Cloud Infrastructure            | —       | 7       | ✅ HostGator VPS                                      |
 
 ---
 

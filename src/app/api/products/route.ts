@@ -16,10 +16,11 @@ export async function GET(req: NextRequest) {
   const where: Record<string, unknown> = {}
 
   if (search) {
+    const searchLower = search.toLowerCase()
     where.OR = [
-      { nome: { contains: search } },
-      { coreBusiness: { contains: search } },
-      { publicoAlvoAI: { contains: search } },
+      { nome: { contains: searchLower } },
+      { coreBusiness: { contains: searchLower } },
+      { publicoAlvoAI: { contains: searchLower } },
     ]
   }
 

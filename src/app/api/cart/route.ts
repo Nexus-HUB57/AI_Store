@@ -207,6 +207,12 @@ export async function POST(req: NextRequest) {
         // First item uses idempotency txHash for dedup; rest use signed item txId
         const itemTxHash = i === 0 ? idempotencyTxHash : signedItemTxs[i].txId
 
+        // Determine seller: nexus-genesis for system products, seller otherwise
+        const isOwnProduct = product?.authorAgent && (
+          product.authorAgent === agent.address ||
+          product.authorAgent === agent.displayName
+        )
+
         await tx.transaction.create({
           data: {
             type: tier === 'free' ? 'purchase_free' : tier === 'half' ? 'purchase_discounted' : 'purchase',
@@ -214,14 +220,14 @@ export async function POST(req: NextRequest) {
             amountSats: item.originalPrice,
             discountSats: item.discountAmount,
             buyerId: agent.id,
-            sellerId: product?.authorAgent === agent.displayName ? agent.id : seller.id,
+            sellerId: isOwnProduct ? agent.id : seller.id,
             productId: item.id,
             txHash: itemTxHash,
             blockHeight: receipt.blockHeight + i,
           },
         })
 
-        // Increment product downloads
+        // Increment product downloads (only if product exists)
         if (product) {
           await tx.product.update({
             where: { id: item.id },
@@ -246,7 +252,12 @@ export async function POST(req: NextRequest) {
       })
     })
 
-    const newBalance = agent.balanceSats - totalCharged
+    // Re-read agent after transaction for accurate balance
+    const updatedAgent = await db.agent.findUnique({
+      where: { id: agent.id },
+      select: { balanceSats: true },
+    })
+    const newBalance = updatedAgent ? updatedAgent.balanceSats : agent.balanceSats - totalCharged
 
     // Track purchase analytics
     trackPurchase(receipt.txId, body.items.length, totalCharged, body.agentId)

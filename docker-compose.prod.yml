@@ -11,19 +11,22 @@ services:
       dockerfile: Dockerfile
     container_name: ai-store-nexus
     ports:
-      - "${APP_PORT:-3000}:3000"
-      - "${HTTPS_PORT:-3443}:3443"
+      - '${APP_PORT:-3000}:3000'
+      - '${HTTPS_PORT:-3443}:3443'
     volumes:
       - store-db:/app/db
       - ./certs:/app/certs:ro
     environment:
       - NODE_ENV=production
       - DATABASE_URL=${DATABASE_URL:-file:/app/db/custom.db}
-      - NEXT_PUBLIC_BASE_URL=${NEXT_PUBLIC_BASE_URL:-https://ai-store.nexus-os.io}
+      - NEXT_PUBLIC_BASE_URL=${NEXT_PUBLIC_BASE_URL:-https://www.mybait.org/aistore}
+      - NEXT_PUBLIC_BASE_PATH=/aistore
+      - SESSION_SECRET=${SESSION_SECRET:-change-me-in-production-use-a-long-random-string}
       - BAIT_PER_SAT=100
       - SIGNUP_BONUS_BAIT=100
       - REFERRAL_BONUS_BAIT=25
-      - PULSAR_INTERVAL_MS=3000
+      - PULSAR_INTERVAL_MS=30000
+      - PULSAR_BATCH_SIZE=3
       - LOG_LEVEL=info
     restart: unless-stopped
     stop_grace_period: 10s
@@ -34,7 +37,7 @@ services:
         reservations:
           memory: 256M
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:3000/api/health"]
+      test: ['CMD', 'wget', '--quiet', '--spider', 'http://localhost:3000/api/health']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -42,14 +45,14 @@ services:
     logging:
       driver: json-file
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: '10m'
+        max-file: '3'
 
   # ── Optional PostgreSQL (activate with --profile postgres) ──
   postgres:
     image: postgres:16-alpine
     container_name: ai-store-postgres
-    profiles: ["postgres"]
+    profiles: ['postgres']
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-aistore}
@@ -58,12 +61,13 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aistore} -d ${POSTGRES_DB:-ai_store}"]
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-aistore} -d ${POSTGRES_DB:-ai_store}']
       interval: 10s
       timeout: 5s
       retries: 5
+    # Port only exposed on localhost for security
     ports:
-      - "5432:5432"
+      - '127.0.0.1:5432:5432'
     deploy:
       resources:
         limits:

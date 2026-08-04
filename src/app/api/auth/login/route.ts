@@ -1,6 +1,9 @@
 import { db } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { loginSchema, validate } from '@/lib/schemas'
+import { signSession } from '@/lib/session'
+
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '/aistore'
 
 const SIGNUP_BONUS = 10000 // 100 BAIT tokens (1 BAIT = 100 sats)
 const REFERRAL_BONUS = 2500 // 25 BAIT tokens
@@ -42,9 +45,10 @@ export async function POST(req: NextRequest) {
           isNew: false,
         },
       })
-      res.cookies.set('agent_id', existing.id, {
+      const sessionToken = signSession(existing.id)
+      res.cookies.set('agent_id', sessionToken, {
         httpOnly: true, secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 30,
+        sameSite: 'lax', path: basePath + '/', maxAge: 60 * 60 * 24 * 30,
       })
       return res
     }
@@ -90,35 +94,35 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // Give referral bonus to referrer
+    // Give referral bonus to referrer (atomic transaction)
     if (referredById) {
-      await db.agent.update({
-        where: { id: referredById },
-        data: { balanceSats: { increment: REFERRAL_BONUS } },
-      })
-
-      await db.referralReward.create({
-        data: {
-          referrerId: referredById,
-          referredId: agent.id,
-          amountSats: REFERRAL_BONUS,
-          type: 'referral_signup',
-          claimed: true,
-        },
-      })
-
-      await db.transaction.create({
-        data: {
-          type: 'referral_bonus',
-          status: 'confirmed',
-          amountSats: REFERRAL_BONUS,
-          discountSats: 0,
-          buyerId: referredById,
-          sellerId: agent.id,
-          txHash: `bAI-ref-${referredById.slice(0, 6)}-${Date.now().toString(36)}`,
-          blockHeight: 0,
-        },
-      })
+      await db.$transaction([
+        db.agent.update({
+          where: { id: referredById },
+          data: { balanceSats: { increment: REFERRAL_BONUS } },
+        }),
+        db.referralReward.create({
+          data: {
+            referrerId: referredById,
+            referredId: agent.id,
+            amountSats: REFERRAL_BONUS,
+            type: 'referral_signup',
+            claimed: true,
+          },
+        }),
+        db.transaction.create({
+          data: {
+            type: 'referral_bonus',
+            status: 'confirmed',
+            amountSats: REFERRAL_BONUS,
+            discountSats: 0,
+            buyerId: referredById,
+            sellerId: agent.id,
+            txHash: `bAI-ref-${referredById.slice(0, 6)}-${Date.now().toString(36)}`,
+            blockHeight: 0,
+          },
+        }),
+      ])
 
       referralBonusGiven = true
     }
@@ -141,9 +145,10 @@ export async function POST(req: NextRequest) {
       referralBonusGiven,
       signupBonus: SIGNUP_BONUS,
     })
-    res.cookies.set('agent_id', agent.id, {
+    const sessionToken = signSession(agent.id)
+    res.cookies.set('agent_id', sessionToken, {
       httpOnly: true, secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 30,
+      sameSite: 'lax', path: basePath + '/', maxAge: 60 * 60 * 24 * 30,
     })
     return res
   } catch (e) {

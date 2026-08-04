@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { generateCsrfToken } from '@/lib/csrf'
+import { verifySessionFormat } from '@/lib/session'
 
 const PROTECTED_ROUTES = ['/dashboard', '/publish']
 const PROTECTED_API = ['/api/agent/dashboard', '/api/referral/stats', '/api/referral/claim', '/api/admin/']
 
 // State-changing API routes that need CSRF protection
-const CSRF_PROTECTED_API = ['/api/cart', '/api/reviews', '/api/upload-aipkg', '/api/referral/claim', '/api/auth/login']
+const CSRF_PROTECTED_API = ['/api/cart', '/api/reviews', '/api/upload-aipkg', '/api/referral/claim', '/api/auth/login', '/api/auth/logout']
 const MAX_BODY_SIZE = 10 * 1024 * 1024 // 10MB
 
 function getRateLimitConfig(pathname: string) {
@@ -21,6 +22,9 @@ function getRateLimitConfig(pathname: string) {
 }
 
 function getClientId(req: NextRequest): string {
+  // Prefer X-Real-IP (set by Caddy/proxy) over X-Forwarded-For (client-spoofable)
+  const realIp = req.headers.get('x-real-ip')
+  if (realIp) return realIp.trim()
   const forwarded = req.headers.get('x-forwarded-for')
   if (forwarded) return forwarded.split(',')[0].trim()
   return 'unknown'
@@ -43,8 +47,8 @@ export function middleware(req: NextRequest) {
 
   // ── Auth guard: Protected page routes ──
   if (PROTECTED_ROUTES.some((r) => pathname.startsWith(r))) {
-    const agentId = req.cookies.get('agent_id')?.value
-    if (!agentId) {
+    const sessionToken = req.cookies.get('agent_id')?.value
+    if (!sessionToken || !verifySessionFormat(sessionToken)) {
       const loginUrl = req.nextUrl.clone()
       loginUrl.pathname = '/'
       loginUrl.searchParams.set('auth', 'required')
@@ -54,8 +58,8 @@ export function middleware(req: NextRequest) {
 
   // ── Auth guard: Protected API routes ──
   if (PROTECTED_API.some((r) => pathname.startsWith(r))) {
-    const agentId = req.cookies.get('agent_id')?.value
-    if (!agentId) {
+    const sessionToken = req.cookies.get('agent_id')?.value
+    if (!sessionToken || !verifySessionFormat(sessionToken)) {
       return NextResponse.json({ error: 'Autenticacao necessaria' }, { status: 401 })
     }
   }
@@ -88,15 +92,17 @@ export function middleware(req: NextRequest) {
     response.headers.set('X-Request-Id', crypto.randomUUID().slice(0, 8))
 
     // ── CSRF: Set token on GET, validate on state-changing ──
+    // NOTE: csrf_token is NOT httpOnly so client JS can read it for the X-CSRF-Token header
+    const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '/aistore'
     if (['GET', 'HEAD'].includes(method)) {
       const existingToken = req.cookies.get('csrf_token')?.value
       if (!existingToken) {
         const token = generateCsrfToken()
         response.cookies.set('csrf_token', token, {
-          httpOnly: true,
+          httpOnly: false,
           secure: process.env.NODE_ENV === 'production',
           sameSite: 'strict',
-          path: '/',
+          path: basePath + '/',
           maxAge: 86400,
         })
       }
@@ -120,15 +126,16 @@ export function middleware(req: NextRequest) {
   // Non-API: security headers + CSRF token
   const response = NextResponse.next()
 
-  // Set CSRF cookie for page loads
+  // Set CSRF cookie for page loads (non-httpOnly so client can read for X-CSRF-Token header)
+  const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '/aistore'
   const existingToken = req.cookies.get('csrf_token')?.value
   if (!existingToken) {
     const token = generateCsrfToken()
     response.cookies.set('csrf_token', token, {
-      httpOnly: true,
+      httpOnly: false,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      path: '/',
+      path: basePath + '/',
       maxAge: 86400,
     })
   }
@@ -137,6 +144,8 @@ export function middleware(req: NextRequest) {
 }
 
 function setSecurityHeaders(res: NextResponse): NextResponse {
+  // NOTE: 'unsafe-inline' 'unsafe-eval' required for Next.js hot-reload (dev) and
+  // third-party scripts. Production should migrate to nonce-based CSP when feasible.
   res.headers.set('Content-Security-Policy', [
     "default-src 'self'",
     "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
