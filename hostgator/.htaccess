@@ -1,19 +1,13 @@
-# ═══════════════════════════════════════════════════════════
 # AI Store — HostGator Apache Configuration
-# Routes all /aistore/ requests through the CGI gateway
-# which proxies to the Next.js standalone Node.js server.
-# ═══════════════════════════════════════════════════════════
+Options +ExecCGI
+AddHandler cgi-script .cgi
 
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /aistore/
-
-  # Route ALL requests through CGI gateway
-  # The CGI script starts the Node.js server and proxies requests
   RewriteRule ^(.*)$ api.cgi/$1 [QSA,L,E=PATH_INFO:/$1]
 </IfModule>
 
-# Security headers
 <IfModule mod_headers.c>
   Header set X-Frame-Options "DENY"
   Header set X-Content-Type-Options "nosniff"
@@ -22,18 +16,6 @@
   Header set Strict-Transport-Security "max-age=31536000; includeSubDomains"
 </IfModule>
 
-# Compression for CGI responses
 <IfModule mod_deflate.c>
   AddOutputFilterByType DEFLATE text/html text/css application/javascript application/json text/plain
-</IfModule>
-
-# Cache static assets (handled by the Node.js server via _next/static)
-<IfModule mod_expires.c>
-  ExpiresActive On
-  ExpiresByType text/css "access plus 1 year"
-  ExpiresByType application/javascript "access plus 1 year"
-  ExpiresByType image/svg+xml "access plus 1 month"
-  ExpiresByType image/png "access plus 1 month"
-  ExpiresByType image/jpeg "access plus 1 month"
-  ExpiresByType application/wasm "access plus 1 year"
 </IfModule>
