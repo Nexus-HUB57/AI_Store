@@ -1,0 +1,31 @@
+name: Test Full Combo
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'hostgator/**'
+  workflow_dispatch:
+    inputs:
+      deploy_target:
+        description: 'Test'
+        type: choice
+        options:
+          - all
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: test-combo
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - env:
+          HG: test
+        run: echo "secret=${#HG}"
