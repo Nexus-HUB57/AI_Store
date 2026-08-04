@@ -1,58 +1,59 @@
-import { randomBytes } from 'crypto'
+/**
+ * CSRF utilities — Edge Runtime compatible.
+ * Used by middleware (Edge) and API routes (Node.js).
+ */
 
 const CSRF_HEADER = 'x-csrf-token'
 const CSRF_COOKIE = 'csrf_token'
-const CSRF_EXPIRY = 60 * 60 * 24 // 24h
 
 /**
- * Generate a new CSRF token and set it as a cookie.
- * Call this on GET requests that serve forms.
+ * Generate a CSRF token using crypto.randomUUID (Edge-compatible).
  */
 export function generateCsrfToken(): string {
-  return randomBytes(32).toString('hex')
+  // Generate 2 UUIDs for 64 hex chars (equivalent to 32 bytes)
+  return crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '')
 }
 
 /**
- * Set the CSRF cookie on a response.
+ * Simple constant-time string comparison.
+ * Not cryptographic, but sufficient for CSRF tokens
+ * which are bound to httpOnly cookies.
  */
-export function setCsrfCookie(res: Response, token: string): void {
-  const headers = new Headers(res.headers)
-  headers.append('Set-Cookie', `${CSRF_COOKIE}=${token}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${CSRF_EXPIRY}`)
-  // Note: NextResponse headers are immutable, use cookies.set instead
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+   let result = 0
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  }
+  return result === 0
 }
 
 /**
  * Validate CSRF token from header against cookie.
- * For Next.js API routes using NextResponse.
+ * Returns true for safe methods (GET/HEAD/OPTIONS).
+ * Edge Runtime compatible.
  */
-export function validateCsrf(req: Request): boolean {
-  // Skip CSRF for GET/HEAD/OPTIONS
-  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return true
+export function validateCsrf(req: { method: string; headers: { get(k: string): string | null }; cookies: { get(k: string): { value: string } | undefined } }): boolean {
+  const method = req.method
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return true
 
   const headerToken = req.headers.get(CSRF_HEADER)
-  const cookieHeader = req.headers.get('cookie') || ''
-
   if (!headerToken) return false
 
-  // Parse cookies to find csrf_token
-  const cookies = Object.fromEntries(
-    cookieHeader.split(';').map(c => {
-      const [key, ...val] = c.trim().split('=')
-      return [key, val.join('=')]
-    })
-  )
-
-  const cookieToken = cookies[CSRF_COOKIE]
+  const cookieToken = req.cookies.get(CSRF_COOKIE)?.value
   if (!cookieToken) return false
 
-  // Constant-time comparison via timingSafeEqual
-  try {
-    const a = Buffer.from(headerToken, 'hex')
-    const b = Buffer.from(cookieToken, 'hex')
-    if (a.length !== b.length) return false
-    const { timingSafeEqual } = require('crypto')
-    return timingSafeEqual(a, b)
-  } catch {
-    return false
+  return safeEqual(headerToken, cookieToken)
+}
+
+/**
+ * Create a CSRF validation result.
+ * Returns null if valid, or an error message if invalid.
+ * For use in API routes (not middleware).
+ */
+export function csrfCheck(req: { method: string; headers: { get(k: string): string | null }; cookies: { get(k: string): { value: string } | undefined } }): string | null {
+  if (!validateCsrf(req)) {
+    return 'Token CSRF invalido ou ausente. Recarregue a pagina e tente novamente.'
   }
+  return null
 }

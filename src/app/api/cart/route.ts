@@ -6,6 +6,7 @@ import { agentErrorResponse } from '@/lib/error-resolver'
 import { recordCall } from '@/app/api/agent/metrics/route'
 import { logger } from '@/lib/logger'
 import { baitWallet, satsToBAIT, formatSats } from '@/lib/wallet-sdk'
+import { trackPurchase } from '@/lib/event-tracker'
 
 /**
  * Discount tiers for new agents:
@@ -246,6 +247,9 @@ export async function POST(req: NextRequest) {
     })
 
     const newBalance = agent.balanceSats - totalCharged
+
+    // Track purchase analytics
+    trackPurchase(receipt.txId, body.items.length, totalCharged, body.agentId)
 
     const latencyMs = Date.now() - startTime
     recordCall({ endpoint: '/api/cart', method: 'POST', statusCode: 200, latencyMs })

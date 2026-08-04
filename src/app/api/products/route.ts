@@ -1,11 +1,17 @@
 import { db } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { productsQuerySchema } from '@/lib/schemas'
+import { trackSearch } from '@/lib/event-tracker'
 
 export async function GET(req: NextRequest) {
   const url = req.nextUrl
   const rawQuery = Object.fromEntries(url.searchParams.entries())
   const { q: search = '', segmento = '', sort = 'pulsarEnergy', page = 1, limit = 24, featured } = productsQuerySchema.parse(rawQuery)
+
+  // Track search analytics
+  if (search) {
+    trackSearch(search, 0) // count updated after query
+  }
 
   const where: Record<string, unknown> = {}
 
@@ -44,6 +50,11 @@ export async function GET(req: NextRequest) {
     }),
     db.product.count({ where }),
   ])
+
+  // Update search tracking with actual result count
+  if (search) {
+    trackSearch(search, total)
+  }
 
   return NextResponse.json({
     products,

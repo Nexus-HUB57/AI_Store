@@ -1,12 +1,16 @@
 import { describe, it, expect } from 'vitest'
 import { generateCsrfToken, validateCsrf } from '@/lib/csrf'
 
-/** Create a minimal Request-like object for testing */
-function makeReq(opts: { method?: string; csrfHeader?: string; csrfCookie?: string }): any {
+/** Create a minimal NextRequest-like object for testing */
+function makeReq(opts: { method?: string; csrfHeader?: string; csrfCookie?: string }): // eslint-disable-next-line @typescript-eslint/no-explicit-any
+any {
   const headers = new Map<string, string>()
   if (opts.csrfHeader) headers.set('x-csrf-token', opts.csrfHeader)
-  if (opts.csrfCookie) headers.set('cookie', `csrf_token=${opts.csrfCookie}`)
-  return { method: opts.method || 'GET', headers: { get: (k: string) => headers.get(k) || null } }
+  return {
+    method: opts.method || 'GET',
+    headers: { get: (k: string) => headers.get(k) || null },
+    cookies: { get: (k: string) => (k === 'csrf_token' && opts.csrfCookie ? { value: opts.csrfCookie } : undefined) },
+  }
 }
 
 describe('CSRF utilities', () => {
@@ -14,7 +18,7 @@ describe('CSRF utilities', () => {
     const token = generateCsrfToken()
     expect(token).toBeTruthy()
     expect(typeof token).toBe('string')
-    expect(token.length).toBe(64) // 32 bytes → 64 hex chars
+    expect(token.length).toBe(64)
     expect(/^[0-9a-f]+$/.test(token)).toBe(true)
   })
 
