@@ -104,31 +104,56 @@ jobs:
           fi
           echo "Secret found (${#HG_CREDS} chars)"
           python3 << 'PYEOF'
-          import os, json, sys
+          import os, json, sys, re
           raw = os.environ['HG_CREDS'].strip()
           host, port, user, pwd = '', '21', '', ''
+          
+          def clean_val(v):
+              v = re.sub(r'^(Host|Port|User|Pass|Password|Senha|Servidor|Usuario|Usuário):\s*', '', v, flags=re.I)
+              return v.strip().strip('"').strip("'")
+
           try:
               c = json.loads(raw)
-              host = str(c.get('host',''))
-              user = str(c.get('user',''))
-              pwd = str(c.get('password',''))
-              port = str(c.get('port','21'))
-          except Exception as e:
-              parts = raw.replace('\n',' ').split(':')
-              if len(parts) >= 4:
-                  host, port, user, pwd = parts[0].strip(), parts[1].strip(), parts[2].strip(), parts[3].strip()
-              elif len(parts) == 3:
-                  host, port, user, pwd = parts[0].strip(), '21', parts[1].strip(), parts[2].strip()
+              host = str(c.get('host', c.get('hostname', '')))
+              user = str(c.get('user', c.get('username', '')))
+              pwd = str(c.get('password', c.get('pass', '')))
+              port = str(c.get('port', '21'))
+          except Exception:
+              lines = [l.strip() for l in raw.splitlines() if l.strip()]
+              kv = {}
+              for line in lines:
+                  if ':' in line:
+                      k, v = line.split(':', 1)
+                      kv[k.strip().lower()] = v.strip()
+              
+              if kv.get('host') or kv.get('hostname') or kv.get('servidor'):
+                  host = kv.get('host') or kv.get('hostname') or kv.get('servidor')
+                  port = kv.get('port', '21')
+                  user = kv.get('user') or kv.get('username') or kv.get('usuário') or kv.get('usuario')
+                  pwd = kv.get('password') or kv.get('pass') or kv.get('senha')
+              else:
+                  parts = [p.strip() for p in raw.replace('\n', ':').split(':') if p.strip()]
+                  parts = [clean_val(p) for p in parts]
+                  if len(parts) >= 4:
+                      host, port, user, pwd = parts[0], parts[1], parts[2], parts[3]
+                  elif len(parts) == 3:
+                      host, port, user, pwd = parts[0], '21', parts[1], parts[2]
+
+          port = re.sub(r'\D', '', str(port))
+          if not port: port = '21'
+          host, user, pwd = clean_val(str(host)), clean_val(str(user)), clean_val(str(pwd))
+
           print(f'Parsed: HOST={host} PORT={port} USER={user} PASS_LEN={len(pwd)}')
           if not host or not user or not pwd:
-              print(f'ERROR: Missing fields. Raw first 20 chars: {raw[:20]}')
+              print(f'ERROR: Missing fields. Parsed Host={host}, User={user}')
               sys.exit(1)
+          
           with open(os.environ['GITHUB_ENV'], 'a') as f:
               f.write(f'HOST={host}\n')
               f.write(f'PORT={port}\n')
               f.write(f'USER={user}\n')
               f.write(f'PASS={pwd}\n')
-          print('Credentials written to GITHUB_ENV')
+          print('Credentials successfully written to GITHUB_ENV')
           PYEOF
 
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
