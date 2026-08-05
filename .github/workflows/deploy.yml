@@ -155,6 +155,8 @@ jobs:
             chmod 755 public_html/aistore-api.cgi;
             put aistore-test.cgi -o public_html/aistore-test.cgi;
             chmod 755 public_html/aistore-test.cgi;
+            echo 'CGI files deployed:';
+            ls -la public_html/aistore-api.cgi public_html/aistore-test.cgi;
             bye
           "
 
@@ -184,21 +186,27 @@ jobs:
             bye
           "
 
-      - name: Deploy root .htaccess (non-destructive)
+      - name: Deploy root .htaccess (patch, not replace)
         run: |
+          # Upload our root-htaccess as a temporary file first
           lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
             set ftp:ssl-force true;
             set ssl:verify-certificate no;
             set net:timeout 60;
-            rm -f public_html/.htaccess.bak.deploy 2>/dev/null;
-            mv public_html/.htaccess public_html/.htaccess.bak.deploy 2>/dev/null;
+            set ftp:binary;
+            put hostgator/root-htaccess -o public_html/.htaccess.aistore-new;
             bye
-          " 2>/dev/null || true
+          "
+          # Replace atomically via rename
           lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
             set ftp:ssl-force true;
             set ssl:verify-certificate no;
             set net:timeout 60;
-            put hostgator/root-htaccess -o public_html/.htaccess;
+            rm -f public_html/.htaccess.bak.aistore 2>/dev/null;
+            rename public_html/.htaccess public_html/.htaccess.bak.aistore 2>/dev/null;
+            rename public_html/.htaccess.aistore-new public_html/.htaccess;
+            echo 'Root .htaccess deployed';
+            cat public_html/.htaccess;
             bye
           "
 
@@ -206,16 +214,20 @@ jobs:
         if: always()
         run: |
           echo "=== Deploy Verification ==="
-          sleep 8
-          HTTP_CODE=$(curl -s -o /tmp/verify.json -w '%{http_code}' --max-time 60 'https://www.mybait.org/aistore/api/version' 2>/dev/null || echo "000")
+          echo "Waiting 15s for Node.js to start (first deploy may install Node.js)..."
+          sleep 15
+          HTTP_CODE=$(curl -s -o /tmp/verify.json -w '%{http_code}' --max-time 90 'https://www.mybait.org/aistore/api/version' 2>/dev/null || echo "000")
           echo "AI Store /api/version: HTTP $HTTP_CODE"
-          echo "AI Store test.cgi:"
-          curl -s --max-time 15 'https://www.mybait.org/aistore/test.cgi' 2>/dev/null | head -5 || true
+          if [ -s /tmp/verify.json ]; then
+            cat /tmp/verify.json | python3 -m json.tool 2>/dev/null || cat /tmp/verify.json
+          fi
+          echo ""
+          echo "=== CGI Direct Test ==="
+          curl -sI --max-time 15 'https://www.mybait.org/aistore-test.cgi' 2>/dev/null | head -10 || echo 'test.cgi unreachable'
           if [ "$HTTP_CODE" = "200" ]; then
             echo "DEPLOY SUCCESSFUL"
-            cat /tmp/verify.json | python3 -m json.tool 2>/dev/null || cat /tmp/verify.json
           else
-            echo "WARNING: HTTP $HTTP_CODE — Node.js may need ~30s to start. Check manually."
+            echo "WARNING: HTTP $HTTP_CODE — Check CGI execution on HostGator"
           fi
 
       - name: Run production smoke test

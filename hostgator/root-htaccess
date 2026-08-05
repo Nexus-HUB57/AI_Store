@@ -1,18 +1,23 @@
-# Root .htaccess — HostGator
-# CAUTION: Do NOT add 'Options +ExecCGI' here — causes 500 on shared hosting
-# CGI handler is already enabled server-wide for .cgi files
+# Root .htaccess — HostGator (AI Store + bAI'tcoin)
+# CGI is enabled server-wide for .cgi on HostGator shared hosting.
+# Do NOT add Options +ExecCGI here — causes 500.
+# Do NOT use ErrorDocument 404 — causes cascade 500 when CGI fails.
+
 AddHandler cgi-script .cgi
 
 <IfModule mod_rewrite.c>
   RewriteEngine On
 
-  # bAI'tcoin daemon (existing)
+  # ── bAI'tcoin daemon (existing) ──
   RewriteCond %{REQUEST_URI} !^/aistore
   RewriteRule ^api/(.*)$ /api.cgi/$1 [QSA,L,E=PATH_INFO:/$1]
 
-  # AI Store API — route through root-level CGI to avoid subdirectory CGI issues
+  # ── AI Store: API requests → root-level CGI gateway ──
   RewriteRule ^aistore/api/(.*)$ /aistore-api.cgi/$1 [QSA,L,E=PATH_INFO:/$1]
   RewriteRule ^aistore/test\.cgi$ /aistore-test.cgi [L]
+
+  # ── AI Store: page requests (non-API) → CGI gateway ──
+  RewriteRule ^aistore/(.*)$ /aistore-api.cgi/$1 [QSA,L,E=PATH_INFO:/$1]
 </IfModule>
 
 <IfModule mod_headers.c>
@@ -23,10 +28,3 @@ AddHandler cgi-script .cgi
 <IfModule mod_deflate.c>
   AddOutputFilterByType DEFLATE text/html text/css application/javascript application/json
 </IfModule>
-
-<IfModule mod_expires.c>
-  ExpiresActive On
-  ExpiresByType application/pdf "access plus 1 month"
-</IfModule>
-
-ErrorDocument 404 /index.html

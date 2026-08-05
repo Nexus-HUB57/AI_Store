@@ -1,3 +1,5 @@
-# Ensure CGI scripts always use LF line endings
+# Ensure CGI scripts and config always use LF line endings
 *.cgi text eol=lf
 *.sh text eol=lf
+.htaccess text eol=lf
+hostgator/* text eol=lf
