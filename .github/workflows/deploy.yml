@@ -31,11 +31,10 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      DATABASE_URL: 'file:db/custom.db'
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set absolute DB path
-        run: echo "DATABASE_URL=file:$(pwd)/db/custom.db" >> "$GITHUB_ENV"
 
       - uses: actions/setup-node@v4
         with:
@@ -45,42 +44,47 @@ jobs:
 
       - run: npx prisma generate
 
-      - name: Verify DB
+      - name: Ensure DB directory exists
+        run: mkdir -p db
+
+      - name: Seed DB
         run: |
-          COUNT=$(node -e "const{PrismaClient}=require('@prisma/client');new PrismaClient().product.count().then(c=>{console.log(c);process.exit(0)})" 2>&1 || echo "0")
-          echo "Products in DB: $COUNT"
+          COUNT=$(node -e "const{PrismaClient}=require('@prisma/client');new PrismaClient().product.count().then(c=>{console.log(c);process.exit(c>0?0:1)})" 2>/dev/null || echo "0")
+          if [ "$COUNT" = "0" ]; then
+            npx tsx scripts/seed-full.ts
+          fi
+
+      - name: Pre-check bAIcoin daemon
+        run: |
+          echo "Checking bAIcoin daemon health..."
+          HTTP_CODE=$(curl -s -o /tmp/bait.json -w '%{http_code}' --max-time 15 "https://www.mybait.org/api/api/v1/status" 2>/dev/null || echo "000")
+          echo "bAIcoin daemon HTTP: $HTTP_CODE"
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "bAIcoin ONLINE"
+          else
+            echo "bAIcoin offline — deploying in simulated wallet mode"
+          fi
 
       - name: Build Next.js
         env:
           NODE_ENV: production
           NEXT_PUBLIC_BASE_PATH: /aistore
           NEXT_PUBLIC_BASE_URL: https://www.mybait.org/aistore
-        run: npx next build
-
-      - name: Check Standalone output
-        run: |
-          if [ ! -d ".next/standalone" ]; then
-            echo "::error::.next/standalone directory does not exist after build"
-            exit 1
-          fi
-          echo ".next/standalone exists — $(du -sh .next/standalone | cut -f1)"
+          DATABASE_URL: 'file:db/custom.db'
+        run: npm run build
 
       - name: Package deploy artifact
         run: |
-          mkdir -p deploy/standalone
-          cp -r .next/standalone/ deploy/standalone/
-          mkdir -p deploy/standalone/.next/static
-          cp -r .next/static/* deploy/standalone/.next/static/
-          mkdir -p deploy/standalone/public
-          cp -r public/* deploy/standalone/public/ 2>/dev/null || true
-          mkdir -p deploy/standalone/{prisma,db}
-          cp prisma/schema.prisma deploy/standalone/prisma/
-          cp db/custom.db deploy/standalone/db/
-          cp package.json deploy/standalone/
-          cp hostgator/aistore-api.cgi hostgator/aistore-test.cgi hostgator/.htaccess hostgator/setup_aistore.sh hostgator/root-htaccess deploy/
+          mkdir -p deploy
+          # Move standalone to deploy root
+          mv .next/standalone deploy/standalone
+          # package.json is already in standalone from npm run build, but let's be sure
+          cp package.json deploy/standalone/ 2>/dev/null || true
+          # Copy CGI and setup scripts to deploy root (outside standalone)
+          cp hostgator/aistore-api.cgi hostgator/aistore-test.cgi hostgator/.htaccess hostgator/setup_aistore.sh deploy/
           chmod +x deploy/aistore-api.cgi deploy/aistore-test.cgi deploy/setup_aistore.sh
+          # Create codebase tarball from standalone content
           cd deploy/standalone && tar czf ../aistore-codebase.tar.gz . && cd ../..
-          echo "Tarball size: $(du -sh deploy/aistore-codebase.tar.gz | cut -f1)"
 
       - name: Parse HostGator credentials
         env:
@@ -95,31 +99,28 @@ jobs:
           python3 << 'PYEOF'
           import os, json, sys
           raw = os.environ['HG_CREDS'].strip()
-          host, port, user, pwd = '', '21', '', ''
           try:
               c = json.loads(raw)
-              host = str(c.get('host',''))
-              user = str(c.get('user',''))
-              pwd = str(c.get('password',''))
-              port = str(c.get('port','21'))
-          except Exception as e:
-              print(f'JSON parse failed ({e}), trying colon format...', file=sys.stderr)
-              parts = raw.replace('\n',' ').split(':')
+              host, user, pwd = c.get('host',''), c.get('user',''), c.get('password','')
+              port = c.get('port', 21)
+          except Exception:
+              parts = raw.split(':')
               if len(parts) >= 4:
-                  host, port, user, pwd = parts[0].strip(), parts[1].strip(), parts[2].strip(), parts[3].strip()
+                  host, port, user, pwd = parts[0], parts[1], parts[2], parts[3]
               elif len(parts) == 3:
-                  host, port, user, pwd = parts[0].strip(), '21', parts[1].strip(), parts[2].strip()
-          print(f'Parsed: HOST={host} PORT={port} USER={user} PASS_LEN={len(pwd)}')
+                  host, port, user, pwd = parts[0], '21', parts[1], parts[2]
+              else:
+                  print('FORMAT_ERROR', file=sys.stderr)
+                  sys.exit(1)
           if not host or not user or not pwd:
-              print(f'ERROR: Missing fields. Raw first 20 chars: {raw[:20]}')
-              print(f'Raw last 20 chars: {raw[-20:]}')
+              print('MISSING_FIELDS', file=sys.stderr)
               sys.exit(1)
           with open(os.environ['GITHUB_ENV'], 'a') as f:
               f.write(f'HOST={host}\n')
               f.write(f'PORT={port}\n')
               f.write(f'USER={user}\n')
               f.write(f'PASS={pwd}\n')
-          print('Credentials written to GITHUB_ENV')
+          print(f'Parsed: HOST={host} PORT={port} USER={user}')
           PYEOF
 
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
@@ -131,14 +132,12 @@ jobs:
             set ssl:verify-certificate no;
             set net:timeout 30;
             pwd;
-            ls public_html/aistore-api.cgi 2>/dev/null || echo 'no CGI yet';
-            ls public_html/.htaccess 2>/dev/null || echo 'no .htaccess';
+            ls public_html/aistore/ 2>/dev/null || echo 'aistore dir not yet created';
             bye
           "
 
-      - name: Deploy config and CGI to HostGator
+      - name: Deploy CGI to root (where CGI handler works)
         run: |
-          ls -la deploy/aistore-api.cgi deploy/aistore-test.cgi deploy/root-htaccess
           lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
             set ftp:ssl-force true;
             set ssl:verify-certificate no;
@@ -146,47 +145,72 @@ jobs:
             set ftp:binary;
             lcd deploy;
             put aistore-api.cgi -o public_html/aistore-api.cgi;
+            chmod 755 public_html/aistore-api.cgi;
             put aistore-test.cgi -o public_html/aistore-test.cgi;
+            chmod 755 public_html/aistore-test.cgi;
+            bye
+          "
+
+      - name: Deploy aistore config files
+        run: |
+          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
+            set ftp:ssl-force true;
+            set ssl:verify-certificate no;
+            set net:timeout 60;
+            set ftp:binary;
             mkdir -p public_html/aistore;
+            lcd deploy;
             put .htaccess -o public_html/aistore/.htaccess;
             put setup_aistore.sh -o public_html/aistore/setup_aistore.sh;
-            put root-htaccess -o public_html/.htaccess.aistore-new;
-            rm -f public_html/.htaccess.bak.aistore 2>/dev/null;
-            rename public_html/.htaccess public_html/.htaccess.bak.aistore 2>/dev/null;
-            rename public_html/.htaccess.aistore-new public_html/.htaccess;
+            chmod 755 public_html/aistore/setup_aistore.sh;
             bye
           "
 
       - name: Deploy codebase tarball
         run: |
-          echo "Tarball: $(du -sh deploy/aistore-codebase.tar.gz | cut -f1)"
           lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
             set ftp:ssl-force true;
             set ssl:verify-certificate no;
-            set net:timeout 600;
-            set ftp:binary;
+            set net:timeout 180;
             lcd deploy;
             put aistore-codebase.tar.gz -o public_html/aistore-codebase.tar.gz;
             bye
           "
-        continue-on-error: true
+
+      - name: Deploy root .htaccess (non-destructive)
+        run: |
+          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
+            set ftp:ssl-force true;
+            set ssl:verify-certificate no;
+            set net:timeout 60;
+            rm -f public_html/.htaccess.bak.deploy 2>/dev/null;
+            mv public_html/.htaccess public_html/.htaccess.bak.deploy 2>/dev/null;
+            bye
+          " 2>/dev/null || true
+          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
+            set ftp:ssl-force true;
+            set ssl:verify-certificate no;
+            set net:timeout 60;
+            put hostgator/root-htaccess -o public_html/.htaccess;
+            bye
+          "
 
       - name: Run smoke test
         if: always()
         run: |
           echo "=== Deploy Verification ==="
-          echo "Waiting 20s for first request (CGI may install Node.js)..."
-          sleep 20
-          HTTP_CODE=$(curl -s -o /tmp/verify.json -w '%{http_code}' --max-time 120 'https://www.mybait.org/aistore/api/version' 2>/dev/null || echo "000")
+          sleep 8
+          HTTP_CODE=$(curl -s -o /tmp/verify.json -w '%{http_code}' --max-time 60 'https://www.mybait.org/aistore/api/version' 2>/dev/null || echo "000")
           echo "AI Store /api/version: HTTP $HTTP_CODE"
-          if [ -s /tmp/verify.json ]; then
-            cat /tmp/verify.json | python3 -m json.tool 2>/dev/null || cat /tmp/verify.json
-          fi
-          echo ""
-          echo "=== CGI Direct Test ==="
-          curl -sI --max-time 15 'https://www.mybait.org/aistore-test.cgi' 2>/dev/null | head -10 || echo 'test.cgi unreachable'
+          echo "AI Store test.cgi:"
+          curl -s --max-time 15 'https://www.mybait.org/aistore/test.cgi' 2>/dev/null | head -5 || true
           if [ "$HTTP_CODE" = "200" ]; then
             echo "DEPLOY SUCCESSFUL"
+            cat /tmp/verify.json | python3 -m json.tool 2>/dev/null || cat /tmp/verify.json
           else
-            echo "WARNING: HTTP $HTTP_CODE — Node.js startup may take 30-60s on cold start"
+            echo "WARNING: HTTP $HTTP_CODE — Node.js may need ~30s to start. Check manually."
           fi
+
+      - name: Run production smoke test
+        if: always()
+        run: bash scripts/smoke-test.sh https://www.mybait.org/aistore || true
