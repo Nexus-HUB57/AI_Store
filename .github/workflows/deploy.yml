@@ -136,13 +136,13 @@ jobs:
             bye
           "
 
-      - name: Deploy all files to HostGator
+      - name: Deploy config and CGI to HostGator
         run: |
-          echo "Tarball size: $(du -sh deploy/aistore-codebase.tar.gz | cut -f1)"
+          ls -la deploy/aistore-api.cgi deploy/aistore-test.cgi deploy/root-htaccess
           lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
             set ftp:ssl-force true;
             set ssl:verify-certificate no;
-            set net:timeout 300;
+            set net:timeout 60;
             set ftp:binary;
             lcd deploy;
             put aistore-api.cgi -o public_html/aistore-api.cgi;
@@ -150,13 +150,26 @@ jobs:
             mkdir -p public_html/aistore;
             put .htaccess -o public_html/aistore/.htaccess;
             put setup_aistore.sh -o public_html/aistore/setup_aistore.sh;
-            put aistore-codebase.tar.gz -o public_html/aistore-codebase.tar.gz;
             put root-htaccess -o public_html/.htaccess.aistore-new;
             rm -f public_html/.htaccess.bak.aistore 2>/dev/null;
             rename public_html/.htaccess public_html/.htaccess.bak.aistore 2>/dev/null;
             rename public_html/.htaccess.aistore-new public_html/.htaccess;
             bye
           "
+
+      - name: Deploy codebase tarball
+        run: |
+          echo "Tarball: $(du -sh deploy/aistore-codebase.tar.gz | cut -f1)"
+          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
+            set ftp:ssl-force true;
+            set ssl:verify-certificate no;
+            set net:timeout 600;
+            set ftp:binary;
+            lcd deploy;
+            put aistore-codebase.tar.gz -o public_html/aistore-codebase.tar.gz;
+            bye
+          "
+        continue-on-error: true
 
       - name: Run smoke test
         if: always()
