@@ -95,28 +95,31 @@ jobs:
           python3 << 'PYEOF'
           import os, json, sys
           raw = os.environ['HG_CREDS'].strip()
+          host, port, user, pwd = '', '21', '', ''
           try:
               c = json.loads(raw)
-              host, user, pwd = c.get('host',''), c.get('user',''), c.get('password','')
-              port = c.get('port', 21)
-          except Exception:
-              parts = raw.split(':')
+              host = str(c.get('host',''))
+              user = str(c.get('user',''))
+              pwd = str(c.get('password',''))
+              port = str(c.get('port','21'))
+          except Exception as e:
+              print(f'JSON parse failed ({e}), trying colon format...', file=sys.stderr)
+              parts = raw.replace('\n',' ').split(':')
               if len(parts) >= 4:
-                  host, port, user, pwd = parts[0], parts[1], parts[2], parts[3]
+                  host, port, user, pwd = parts[0].strip(), parts[1].strip(), parts[2].strip(), parts[3].strip()
               elif len(parts) == 3:
-                  host, port, user, pwd = parts[0], '21', parts[1], parts[2]
-              else:
-                  print('FORMAT_ERROR', file=sys.stderr)
-                  sys.exit(1)
+                  host, port, user, pwd = parts[0].strip(), '21', parts[1].strip(), parts[2].strip()
+          print(f'Parsed: HOST={host} PORT={port} USER={user} PASS_LEN={len(pwd)}')
           if not host or not user or not pwd:
-              print('MISSING_FIELDS', file=sys.stderr)
+              print(f'ERROR: Missing fields. Raw first 20 chars: {raw[:20]}')
+              print(f'Raw last 20 chars: {raw[-20:]}')
               sys.exit(1)
           with open(os.environ['GITHUB_ENV'], 'a') as f:
               f.write(f'HOST={host}\n')
               f.write(f'PORT={port}\n')
               f.write(f'USER={user}\n')
               f.write(f'PASS={pwd}\n')
-          print(f'Parsed: HOST={host} PORT={port} USER={user}')
+          print('Credentials written to GITHUB_ENV')
           PYEOF
 
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
