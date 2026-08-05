@@ -41,9 +41,24 @@ jobs:
         with:
           node-version: 20
 
-      - run: npm ci
+      - name: Install dependencies
+        run: |
+          for i in {1..3}; do
+            npm ci && break || {
+              if [ $i -lt 3 ]; then
+                echo "npm ci failed, retrying in 10s... ($i/3)"
+                sleep 10
+              else
+                echo "npm ci failed after 3 attempts"
+                exit 1
+              fi
+            }
+          done
 
       - run: npx prisma generate
+
+      - name: Push database schema
+        run: npx prisma db push --accept-data-loss
 
       - name: Verify DB
         run: |
@@ -118,47 +133,85 @@ jobs:
           python3 << 'PYEOF'
           import os, json, sys, re
           raw = os.environ['HG_CREDS'].strip()
-          host, port, user, pwd = '', '21', '', ''
           
           def clean_val(v):
-              v = re.sub(r'^(Host|Port|User|Pass|Password|Senha|Servidor|Usuario|Usuário):\s*', '', v, flags=re.I)
+              if not v: return ""
+              # Remove common labels and leading/trailing whitespace/quotes
+              v = re.sub(r'^(Host|Port|User|Pass|Password|Senha|Servidor|Usuario|Usuário|Porta|Login|Username):\s*', '', v, flags=re.I)
               return v.strip().strip('"').strip("'")
 
-          try:
-              c = json.loads(raw)
-              host = str(c.get('host', c.get('hostname', '')))
-              user = str(c.get('user', c.get('username', '')))
-              pwd = str(c.get('password', c.get('pass', '')))
-              port = str(c.get('port', '21'))
-          except Exception:
-              lines = [l.strip() for l in raw.splitlines() if l.strip()]
-              kv = {}
-              for line in lines:
-                  if ':' in line:
-                      k, v = line.split(':', 1)
-                      kv[k.strip().lower()] = v.strip()
-              
-              if kv.get('host') or kv.get('hostname') or kv.get('servidor'):
-                  host = kv.get('host') or kv.get('hostname') or kv.get('servidor')
-                  port = kv.get('port', '21')
-                  user = kv.get('user') or kv.get('username') or kv.get('usuário') or kv.get('usuario')
-                  pwd = kv.get('password') or kv.get('pass') or kv.get('senha')
-              else:
-                  parts = [p.strip() for p in raw.replace('\n', ':').split(':') if p.strip()]
-                  parts = [clean_val(p) for p in parts]
-                  if len(parts) >= 4:
-                      host, port, user, pwd = parts[0], parts[1], parts[2], parts[3]
-                  elif len(parts) == 3:
-                      host, port, user, pwd = parts[0], '21', parts[1], parts[2]
+          def parse_creds(raw):
+              # Try JSON first
+              try:
+                  c = json.loads(raw)
+                  return {
+                      'host': clean_val(str(c.get('host', c.get('hostname', c.get('servidor', ''))))),
+                      'user': clean_val(str(c.get('user', c.get('username', c.get('usuario', c.get('usuário', '')))))),
+                      'pwd': clean_val(str(c.get('password', c.get('pass', c.get('senha', ''))))),
+                      'port': clean_val(str(c.get('port', c.get('porta', '21'))))
+                  }
+              except:
+                  pass
 
-          port = re.sub(r'\D', '', str(port))
-          if not port: port = '21'
-          host, user, pwd = clean_val(str(host)), clean_val(str(user)), clean_val(str(pwd))
+              # Try key-value pairs (colon or equals)
+              kv = {}
+              lines = [l.strip() for l in raw.splitlines() if l.strip()]
+              for line in lines:
+                  for sep in [':', '=']:
+                      if sep in line:
+                          k, v = line.split(sep, 1)
+                          kv[k.strip().lower()] = v.strip()
+                          break
+              
+              mapping = {
+                  'host': ['host', 'hostname', 'servidor', 'ftp'],
+                  'user': ['user', 'username', 'usuário', 'usuario', 'login'],
+                  'pwd': ['password', 'pass', 'senha'],
+                  'port': ['port', 'porta']
+              }
+              
+              result = {}
+              for key, aliases in mapping.items():
+                  for alias in aliases:
+                      if alias in kv:
+                          result[key] = clean_val(kv[alias])
+                          break
+              
+              if result.get('host') and result.get('user') and result.get('pwd'):
+                  if 'port' not in result: result['port'] = '21'
+                  return result
+
+              # Fallback: split by whitespace or colons and look for 4 parts
+              parts = re.split(r'[\s,;|]+', raw)
+              parts = [p.strip() for p in parts if p.strip()]
+              
+              # Heuristic: filter out labels
+              labels = {'host', 'hostname', 'servidor', 'user', 'username', 'usuário', 'usuario', 'password', 'pass', 'senha', 'port', 'porta', 'ftp', 'login'}
+              clean_parts = [p for p in parts if p.lower().rstrip(':') not in labels]
+              
+              if len(clean_parts) >= 3:
+                  port = '21'
+                  # Try to find port
+                  for i, p in enumerate(clean_parts):
+                      if p.isdigit() and int(p) in [21, 22, 2121]:
+                          port = p
+                          clean_parts.pop(i)
+                          break
+                  
+                  if len(clean_parts) >= 3:
+                      return {'host': clean_parts[0], 'user': clean_parts[1], 'pwd': clean_parts[2], 'port': port}
+
+              return None
+
+          creds = parse_creds(raw)
+          if not creds:
+              print(f"ERROR: Could not parse credentials from secret. Raw length: {len(raw)}")
+              sys.exit(1)
+
+          host, port, user, pwd = creds['host'], creds['port'], creds['user'], creds['pwd']
+          port = re.sub(r'\D', '', str(port)) or '21'
 
           print(f'Parsed: HOST={host} PORT={port} USER={user} PASS_LEN={len(pwd)}')
-          if not host or not user or not pwd:
-              print(f'ERROR: Missing fields. Parsed Host={host}, User={user}')
-              sys.exit(1)
           
           with open(os.environ['GITHUB_ENV'], 'a') as f:
               f.write(f'HOST={host}\n')
@@ -171,15 +224,20 @@ jobs:
       - name: Test FTP connection
         run: |
           python3 << 'PYEOF'
-          import ftplib, os
-          host, port, user, pwd = os.environ['HOST'], int(os.environ['PORT']), os.environ['USER'], os.environ['PASS']
-          ftps = ftplib.FTP_TLS()
-          ftps.connect(host, port, timeout=30)
-          ftps.login(user, pwd)
-          ftps.prot_p()
-          print(f'Connected to {host}:{port} as {user}')
-          ftps.quit()
-          print('FTP connection OK')
+          import ftplib, os, sys
+          try:
+              host, port, user, pwd = os.environ['HOST'], int(os.environ['PORT']), os.environ['USER'], os.environ['PASS']
+              print(f"Attempting to connect to {host}:{port}...")
+              ftps = ftplib.FTP_TLS()
+              ftps.connect(host, port, timeout=30)
+              ftps.login(user, pwd)
+              ftps.prot_p()
+              print(f'Connected successfully to {host}:{port} as {user}')
+              ftps.quit()
+              print('FTP connection test passed')
+          except Exception as e:
+              print(f'FTP connection failed: {e}', file=sys.stderr)
+              sys.exit(1)
           PYEOF
 
       - name: Deploy files via FTP
