@@ -99,8 +99,39 @@ else
     log "WARNING: server.js not found. The build may not have standalone output."
 fi
 
+# ── Fix root .htaccess with CGI directives ──
+log "Setting up root .htaccess with CGI support..."
+cat > "$HOME/public_html/.htaccess" << 'ROOTHT'
+Options +ExecCGI
+AddHandler cgi-script .cgi
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{REQUEST_URI} !^/aistore
+  RewriteRule ^api/(.*)$ /api.cgi/$1 [QSA,L,E=PATH_INFO:/$1]
+</IfModule>
+
+<IfModule mod_headers.c>
+  Header set X-Frame-Options "DENY"
+  Header set X-Content-Type-Options "nosniff"
+</IfModule>
+
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/css application/javascript application/json
+</IfModule>
+
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType application/pdf "access plus 1 month"
+</IfModule>
+
+ErrorDocument 404 /index.html
+ROOTHT
+log "Root .htaccess updated"
+
 # ── Set permissions ──
 chmod +x "$HOME/public_html/aistore/api.cgi" 2>/dev/null || true
+chmod +x "$HOME/public_html/api.cgi" 2>/dev/null || true
 
 log "=== AI Store Setup Complete ==="
 log ""

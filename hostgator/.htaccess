@@ -1,4 +1,6 @@
 # AI Store — HostGator Apache Configuration
+AddHandler cgi-script .cgi
+
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /aistore/
