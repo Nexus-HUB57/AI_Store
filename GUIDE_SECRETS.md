@@ -1,28 +1,61 @@
-# Guia de Organização de Segredos (GitHub Secrets)
+# 🔐 Guia de Configuração de Segredos (GitHub Secrets)
 
-Para garantir que o workflow de deploy funcione corretamente com a nova estrutura organizada, você deve configurar os segredos individualmente no GitHub. Isso elimina erros de interpretação de texto e torna o processo muito mais seguro e confiável.
-
-### Onde configurar:
-No seu repositório no GitHub, vá em:
-**Settings > Secrets and variables > Actions > New repository secret**
+Este guia detalha os segredos necessários para o funcionamento correto do pipeline de CI/CD e da aplicação **AI Store Nexus**. A transição para segredos individuais visa aumentar a confiabilidade, facilitar a manutenção e evitar erros de parsing durante o deploy.
 
 ---
 
-### Lista de Segredos Necessários:
+## 📋 Lista de Segredos Necessários
+
+### 🚀 Deploy (HostGator FTP)
+Estes segredos são utilizados pelo GitHub Actions para enviar os arquivos compilados para o servidor.
 
 | Nome do Segredo | Descrição | Exemplo de Valor |
 | :--- | :--- | :--- |
-| **FTP_HOST** | O endereço do servidor FTP da HostGator | `ftp.seusite.com.br` ou `123.456.78.90` |
-| **FTP_USER** | Seu nome de usuário do FTP | `usuario@seusite.com.br` |
-| **FTP_PASS** | Sua senha do FTP | `sua_senha_segura` |
-| **FTP_PORT** | Porta do FTP (Opcional, padrão é 21) | `21` |
-| **SESSION_SECRET** | Chave para sessões do Next.js (mínimo 16 caracteres) | `uma_chave_muito_longa_e_aleatoria` |
+| `FTP_HOST` | Endereço do servidor FTP | `ftp.seusite.com.br` ou IP |
+| `FTP_USER` | Usuário da conta FTP | `deploy@seusite.com.br` |
+| `FTP_PASS` | Senha da conta FTP | `p4ssw0rd_segura` |
+| `FTP_PORT` | Porta do serviço FTP | `21` (padrão) |
+
+### 💻 Aplicação (Runtime)
+Estes segredos são injetados no ambiente de execução da aplicação no servidor.
+
+| Nome do Segredo | Descrição | Requisito |
+| :--- | :--- | :--- |
+| `SESSION_SECRET` | Chave de criptografia para sessões Next.js | Mínimo 16 caracteres aleatórios |
 
 ---
 
-### Por que mudamos?
-1. **Confiabilidade**: O GitHub Actions às vezes mascara partes dos segredos nos logs, o que quebrava o script que tentava ler tudo de uma vez. Separando-os, o sistema não se confunde.
-2. **Segurança**: Você pode atualizar apenas a senha sem precisar reformatar todo o bloco de texto.
-3. **Simplicidade**: O código do workflow ficou mais limpo e fácil de manter.
+## 🛠️ Como Configurar
 
-> **Nota**: O segredo antigo `CREDENCIAIS_HOSTGATOR` não é mais necessário e pode ser removido após configurar os novos.
+Para adicionar ou atualizar um segredo, siga os passos abaixo:
+
+1. Acesse o repositório no GitHub.
+2. Vá em **Settings** (Configurações) na barra superior.
+3. No menu lateral esquerdo, clique em **Secrets and variables** > **Actions**.
+4. Clique no botão verde **New repository secret**.
+5. Insira o **Name** (ex: `FTP_HOST`) e o **Value** correspondente.
+6. Clique em **Add secret**.
+
+---
+
+## 🔄 O que mudou?
+
+Anteriormente, utilizávamos um segredo único chamado `CREDENCIAIS_HOSTGATOR` que continha todas as informações em um bloco de texto. Mudamos para segredos individuais pelos seguintes motivos:
+
+*   **Confiabilidade:** Evita falhas no script de parsing quando o GitHub mascara partes do texto nos logs.
+*   **Granularidade:** Permite atualizar apenas a senha sem risco de corromper o formato dos outros dados.
+*   **Segurança:** Segredos individuais são melhor gerenciados e auditados pelo GitHub.
+
+> [!IMPORTANT]
+> O segredo antigo `CREDENCIAIS_HOSTGATOR` deve ser removido após a configuração dos novos segredos para manter o repositório limpo.
+
+---
+
+## 🔐 Segurança
+
+*   **Nunca** compartilhe seus segredos em mensagens ou arquivos de texto simples.
+*   As senhas de FTP devem ter permissão restrita apenas às pastas necessárias (ex: `public_html/aistore`).
+*   Recomenda-se rotacionar (trocar) as senhas periodicamente.
+
+---
+*Nexus-AI-OS - Automação e Inteligência*
