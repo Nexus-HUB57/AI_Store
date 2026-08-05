@@ -18,10 +18,10 @@ info = {
     'path_info': os.environ.get('PATH_INFO', 'N/A'),
     'server_software': os.environ.get('SERVER_SOFTWARE', 'N/A'),
     'document_root': os.environ.get('DOCUMENT_ROOT', 'N/A'),
-    'node_exists': os.path.exists('/home1/luca2490/aistore-api/node-v20.18.0-linux-x64/bin/node'),
-    'server_exists': os.path.exists('/home1/luca2490/aistore-api/standalone/server.js'),
-    'db_exists': os.path.exists('/home1/luca2490/aistore-api/db/custom.db'),
-    'codebase_exists': os.path.exists('/home1/luca2490/public_html/aistore-codebase.tar.gz'),
+    'node_exists': os.path.exists(os.path.join(os.environ.get('HOME', ''), 'aistore-api/node-v20.18.0-linux-x64/bin/node')),
+    'server_exists': os.path.exists(os.path.join(os.environ.get('HOME', ''), 'aistore-api/standalone/server.js')),
+    'db_exists': os.path.exists(os.path.join(os.environ.get('HOME', ''), 'aistore-api/db/custom.db')),
+    'codebase_exists': os.path.exists(os.path.join(os.environ.get('HOME', ''), 'public_html/aistore-codebase.tar.gz')),
 }
 
 sys.stdout.write(json.dumps(info, indent=2))
