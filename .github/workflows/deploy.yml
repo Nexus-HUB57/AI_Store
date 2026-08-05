@@ -81,8 +81,8 @@ jobs:
           cp prisma/schema.prisma deploy/standalone/prisma/
           cp db/custom.db deploy/standalone/db/
           cp package.json deploy/standalone/
-          cp hostgator/api.cgi hostgator/.htaccess hostgator/setup_aistore.sh deploy/
-          chmod +x deploy/api.cgi deploy/setup_aistore.sh
+          cp hostgator/api.cgi hostgator/test.cgi hostgator/.htaccess hostgator/setup_aistore.sh deploy/
+          chmod +x deploy/api.cgi deploy/test.cgi deploy/setup_aistore.sh
           cd deploy/standalone && tar czf ../aistore-codebase.tar.gz . && cd ../..
 
       - name: Parse HostGator credentials
@@ -145,6 +145,8 @@ jobs:
             lcd deploy;
             put api.cgi -o public_html/aistore/api.cgi;
             chmod 755 public_html/aistore/api.cgi;
+            put test.cgi -o public_html/aistore/test.cgi;
+            chmod 755 public_html/aistore/test.cgi;
             put .htaccess -o public_html/aistore/.htaccess;
             put setup_aistore.sh -o public_html/aistore/setup_aistore.sh;
             chmod 755 public_html/aistore/setup_aistore.sh;
