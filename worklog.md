@@ -46,3 +46,28 @@ Stage Summary:
 - test.cgi deployed to diagnose: https://www.mybait.org/aistore/test.cgi
 - npm scripts: smoke, smoke:prod, stress, stress:prod
 - Commits: d890087, 30de109, 07c073c, d4c94cc
+
+---
+
+Task ID: 2
+Agent: Super Z (main)
+Task: E2E validation + deploy pipeline debugging
+
+Work Log:
+
+- Fixed 6 critical deploy issues: DB path (absolute), build cmd (npx), Seed DB (non-failing), lftp commands, heredoc syntax, root-htaccess cascade
+- Other agent kept reverting fixes via concurrent pushes
+- Replaced lftp with Python ftplib for better error reporting
+- FTP upload STILL fails after 10+ iterations (cannot see CI logs without admin rights)
+- Build succeeds consistently: 1504 SSG pages, 0 errors, 448MB standalone
+- All steps pass EXCEPT the FTP upload step
+- Created deploy-manual.sh for cPanel/SSH deployment
+- Smoke test and stress test scripts exist and are ready
+
+Stage Summary:
+
+- Pipeline: Build✅ Package✅ Creds✅ FTP-Connect✅ → FTP-Upload❌
+- Root cause: Unknown (need CI log access to debug FTP upload failure)
+- Mitigation: deploy-manual.sh created for manual deployment
+- Smoke test (scripts/smoke-test.sh) — comprehensive, 30+ checks
+- Stress test (scripts/stress-test.sh) — 6 scenarios, concurrent load
