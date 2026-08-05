@@ -31,6 +31,8 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      DATABASE_URL: 'file:db/custom.db'
     steps:
       - uses: actions/checkout@v4
 
