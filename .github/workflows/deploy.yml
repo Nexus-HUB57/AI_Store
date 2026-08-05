@@ -94,6 +94,23 @@ jobs:
           echo "PASS=$PASS" >> $GITHUB_ENV
           echo "PORT=$PORT" >> $GITHUB_ENV
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+      - name: Test FTP connection
+        run: |
+          echo "=== Testing FTP connection ==="
+          echo "Host: $HOST  Port: $PORT  User: $USER"
+          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
+            set ftp:ssl-force true;
+            set ssl:verify-certificate no;
+            set net:timeout 30;
+            pwd;
+            ls -la public_html/;
+            echo '--- Existing aistore .htaccess (if any) ---';
+            cat public_html/aistore/.htaccess 2>/dev/null || echo 'NOT FOUND';
+            echo '--- Existing root .htaccess (first 20 lines) ---';
+            cat public_html/.htaccess 2>/dev/null | head -20 || echo 'NOT FOUND';
+            bye
+          "
+          echo "=== FTP connection test complete ==="
       - name: Deploy files
         run: |
           lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "set ftp:ssl-force true; set ssl:verify-certificate no; set net:timeout 60; mkdir -p public_html/aistore; lcd deploy; put api.cgi -o public_html/aistore/api.cgi; chmod 755 public_html/aistore/api.cgi; put .htaccess -o public_html/aistore/.htaccess; put setup_aistore.sh -o public_html/aistore/setup_aistore.sh; chmod 755 public_html/aistore/setup_aistore.sh; bye"
