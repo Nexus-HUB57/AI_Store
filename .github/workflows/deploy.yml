@@ -69,6 +69,14 @@ jobs:
           NEXT_PUBLIC_BASE_URL: https://www.mybait.org/aistore
         run: npx next build
 
+      - name: Check Standalone output
+        run: |
+          if [ ! -d ".next/standalone" ]; then
+            echo "::error::.next/standalone directory does not exist after build"
+            exit 1
+          fi
+          echo ".next/standalone exists — $(du -sh .next/standalone | cut -f1)"
+
       - name: Package deploy artifact
         run: |
           mkdir -p deploy/standalone
