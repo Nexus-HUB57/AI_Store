@@ -5,8 +5,14 @@ AddHandler cgi-script .cgi
 
 <IfModule mod_rewrite.c>
   RewriteEngine On
+
+  # bAI'tcoin daemon (existing)
   RewriteCond %{REQUEST_URI} !^/aistore
   RewriteRule ^api/(.*)$ /api.cgi/$1 [QSA,L,E=PATH_INFO:/$1]
+
+  # AI Store API — route through root-level CGI to avoid subdirectory CGI issues
+  RewriteRule ^aistore/api/(.*)$ /aistore-api.cgi/$1 [QSA,L,E=PATH_INFO:/$1]
+  RewriteRule ^aistore/test\.cgi$ /aistore-test.cgi [L]
 </IfModule>
 
 <IfModule mod_headers.c>

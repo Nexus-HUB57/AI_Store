@@ -81,8 +81,8 @@ jobs:
           cp prisma/schema.prisma deploy/standalone/prisma/
           cp db/custom.db deploy/standalone/db/
           cp package.json deploy/standalone/
-          cp hostgator/api.cgi hostgator/test.cgi hostgator/.htaccess hostgator/setup_aistore.sh deploy/
-          chmod +x deploy/api.cgi deploy/test.cgi deploy/setup_aistore.sh
+          cp hostgator/aistore-api.cgi hostgator/aistore-test.cgi hostgator/.htaccess hostgator/setup_aistore.sh deploy/
+          chmod +x deploy/aistore-api.cgi deploy/aistore-test.cgi deploy/setup_aistore.sh
           cd deploy/standalone && tar czf ../aistore-codebase.tar.gz . && cd ../..
 
       - name: Parse HostGator credentials
@@ -135,7 +135,22 @@ jobs:
             bye
           "
 
-      - name: Deploy CGI and config files
+      - name: Deploy CGI to root (where CGI handler works)
+        run: |
+          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
+            set ftp:ssl-force true;
+            set ssl:verify-certificate no;
+            set net:timeout 60;
+            set ftp:binary;
+            lcd deploy;
+            put aistore-api.cgi -o public_html/aistore-api.cgi;
+            chmod 755 public_html/aistore-api.cgi;
+            put aistore-test.cgi -o public_html/aistore-test.cgi;
+            chmod 755 public_html/aistore-test.cgi;
+            bye
+          "
+
+      - name: Deploy aistore config files
         run: |
           lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
             set ftp:ssl-force true;
@@ -144,10 +159,6 @@ jobs:
             set ftp:binary;
             mkdir -p public_html/aistore;
             lcd deploy;
-            put api.cgi -o public_html/aistore/api.cgi;
-            chmod 755 public_html/aistore/api.cgi;
-            put test.cgi -o public_html/aistore/test.cgi;
-            chmod 755 public_html/aistore/test.cgi;
             put .htaccess -o public_html/aistore/.htaccess;
             put setup_aistore.sh -o public_html/aistore/setup_aistore.sh;
             chmod 755 public_html/aistore/setup_aistore.sh;
@@ -190,6 +201,8 @@ jobs:
           sleep 8
           HTTP_CODE=$(curl -s -o /tmp/verify.json -w '%{http_code}' --max-time 60 'https://www.mybait.org/aistore/api/version' 2>/dev/null || echo "000")
           echo "AI Store /api/version: HTTP $HTTP_CODE"
+          echo "AI Store test.cgi:"
+          curl -s --max-time 15 'https://www.mybait.org/aistore/test.cgi' 2>/dev/null | head -5 || true
           if [ "$HTTP_CODE" = "200" ]; then
             echo "DEPLOY SUCCESSFUL"
             cat /tmp/verify.json | python3 -m json.tool 2>/dev/null || cat /tmp/verify.json
