@@ -59,3 +59,27 @@ Anteriormente, utilizávamos um segredo único chamado `CREDENCIAIS_HOSTGATOR` q
 
 ---
 *Nexus-AI-OS - Automação e Inteligência*
+
+---
+
+## 🚀 Atualização do Workflow (`deploy.yml`)
+
+Para que o GitHub Actions utilize os novos segredos individuais, o arquivo `.github/workflows/deploy.yml` deve ser atualizado. Como este arquivo gerencia permissões sensíveis, recomendamos a seguinte alteração manual na etapa de configuração de credenciais:
+
+```yaml
+      - name: Configure FTP Credentials
+        run: |
+          {
+            echo "HOST=${{ secrets.FTP_HOST }}"
+            echo "USER=${{ secrets.FTP_USER }}"
+            echo "PASS=${{ secrets.FTP_PASS }}"
+            echo "PORT=${{ secrets.FTP_PORT || '21' }}"
+          } >> "$GITHUB_ENV"
+          
+          if [ -z "${{ secrets.FTP_HOST }}" ] || [ -z "${{ secrets.FTP_USER }}" ] || [ -z "${{ secrets.FTP_PASS }}" ]; then
+            echo "::error::Missing FTP secrets (FTP_HOST, FTP_USER, or FTP_PASS)"
+            exit 1
+          fi
+```
+
+Esta alteração substitui o script Python de parsing antigo por uma solução mais simples e direta.
