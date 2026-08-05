@@ -29,4 +29,59 @@ jobs:
           node-version: 20
       - run: npm ci
       - run: npx prisma generate
-      - run: echo 'BUILD WOULD HAPPEN HERE - testing workflow execution'
+      - name: Seed DB
+        run: |
+          COUNT=$(node -e "const{PrismaClient}=require('@prisma/client');new PrismaClient().product.count().then(c=>{console.log(c);process.exit(c>0?0:1)})" 2>/dev/null || echo "0")
+          if [ "$COUNT" = "0" ]; then
+            npx tsx scripts/seed-full.ts
+          fi
+      - name: Build
+        env:
+          NODE_ENV: production
+          NEXT_PUBLIC_BASE_PATH: /aistore
+          NEXT_PUBLIC_BASE_URL: https://www.mybait.org/aistore
+        run: npx next build
+      - name: Package
+        run: |
+          mkdir -p deploy/standalone
+          cp -r .next/standalone/ deploy/standalone/
+          mkdir -p deploy/standalone/.next/static
+          cp -r .next/static/* deploy/standalone/.next/static/
+          mkdir -p deploy/standalone/public
+          cp -r public/* deploy/standalone/public/ 2>/dev/null || true
+          mkdir -p deploy/standalone/{prisma,db}
+          cp prisma/schema.prisma deploy/standalone/prisma/
+          cp db/custom.db deploy/standalone/db/
+          cp package.json deploy/standalone/
+          cp hostgator/api.cgi hostgator/.htaccess hostgator/setup_aistore.sh deploy/
+          chmod +x deploy/api.cgi deploy/setup_aistore.sh
+          cd deploy/standalone && tar czf ../aistore-codebase.tar.gz . && cd ../..
+      - name: Parse credentials
+        env:
+          HG_CREDS: ${{ secrets.CREDENCIAIS_HOSTGATOR }}
+        run: |
+          if [ -z "$HG_CREDS" ]; then
+            echo "ERROR: Secret CREDENCIAIS_HOSTGATOR not set"
+            exit 1
+          fi
+          eval "$(python3 -c \"import os,json;c=json.loads(os.environ['HG_CREDS']);print('HOST='+c.get('host',''));print('USER='+c.get('user',''));print('PASS='+c.get('password',''));print('PORT='+str(c.get('port',21)))\")"
+          if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$PASS" ]; then
+            echo "ERROR: Missing credentials"
+            exit 1
+          fi
+          echo "HOST=$HOST" >> $GITHUB_ENV
+          echo "USER=$USER" >> $GITHUB_ENV
+          echo "PASS=$PASS" >> $GITHUB_ENV
+          echo "PORT=$PORT" >> $GITHUB_ENV
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+      - name: Deploy files
+        run: |
+          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "set ftp:ssl-force true; set ssl:verify-certificate no; set net:timeout 60; mkdir -p public_html/aistore; lcd deploy; put api.cgi -o public_html/aistore/api.cgi; chmod 755 public_html/aistore/api.cgi; put .htaccess -o public_html/aistore/.htaccess; put setup_aistore.sh -o public_html/aistore/setup_aistore.sh; chmod 755 public_html/aistore/setup_aistore.sh; bye"
+      - name: Deploy codebase
+        run: |
+          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "set ftp:ssl-force true; set ssl:verify-certificate no; set net:timeout 180; lcd deploy; put aistore-codebase.tar.gz -o public_html/aistore-codebase.tar.gz; bye"
+      - name: Verify
+        if: always()
+        run: |
+          echo "https://www.mybait.org/aistore/"
+          echo "https://www.mybait.org/aistore/api/health"
