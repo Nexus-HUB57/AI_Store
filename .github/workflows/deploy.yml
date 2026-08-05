@@ -77,7 +77,7 @@ jobs:
           cp prisma/schema.prisma deploy/standalone/prisma/
           cp db/custom.db deploy/standalone/db/
           cp package.json deploy/standalone/
-          cp hostgator/aistore-api.cgi hostgator/aistore-test.cgi hostgator/.htaccess hostgator/setup_aistore.sh deploy/
+          cp hostgator/aistore-api.cgi hostgator/aistore-test.cgi hostgator/.htaccess hostgator/setup_aistore.sh hostgator/root-htaccess deploy/
           chmod +x deploy/aistore-api.cgi deploy/aistore-test.cgi deploy/setup_aistore.sh
           cd deploy/standalone && tar czf ../aistore-codebase.tar.gz . && cd ../..
           echo "Tarball size: $(du -sh deploy/aistore-codebase.tar.gz | cut -f1)"
@@ -136,62 +136,25 @@ jobs:
             bye
           "
 
-      - name: Deploy CGI to root (where CGI handler works)
+      - name: Deploy all files to HostGator
         run: |
-          ls -la deploy/aistore-api.cgi deploy/aistore-test.cgi
-          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
-            set ftp:ssl-force true;
-            set ssl:verify-certificate no;
-            set net:timeout 60;
-            set ftp:binary;
-            lcd deploy;
-            put aistore-api.cgi -o public_html/aistore-api.cgi;
-            put aistore-test.cgi -o public_html/aistore-test.cgi;
-            quote SITE CHMOD 755 public_html/aistore-api.cgi;
-            quote SITE CHMOD 755 public_html/aistore-test.cgi;
-            ls public_html/aistore-api.cgi public_html/aistore-test.cgi;
-            bye
-          "
-
-      - name: Deploy aistore config files
-        run: |
-          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
-            set ftp:ssl-force true;
-            set ssl:verify-certificate no;
-            set net:timeout 60;
-            set ftp:binary;
-            mkdir -p public_html/aistore;
-            lcd deploy;
-            put .htaccess -o public_html/aistore/.htaccess;
-            put setup_aistore.sh -o public_html/aistore/setup_aistore.sh;
-            chmod 755 public_html/aistore/setup_aistore.sh;
-            bye
-          "
-
-      - name: Deploy codebase tarball
-        run: |
+          echo "Tarball size: $(du -sh deploy/aistore-codebase.tar.gz | cut -f1)"
           lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
             set ftp:ssl-force true;
             set ssl:verify-certificate no;
             set net:timeout 300;
             set ftp:binary;
             lcd deploy;
+            put aistore-api.cgi -o public_html/aistore-api.cgi;
+            put aistore-test.cgi -o public_html/aistore-test.cgi;
+            mkdir -p public_html/aistore;
+            put .htaccess -o public_html/aistore/.htaccess;
+            put setup_aistore.sh -o public_html/aistore/setup_aistore.sh;
             put aistore-codebase.tar.gz -o public_html/aistore-codebase.tar.gz;
-            bye
-          "
-
-      - name: Deploy root .htaccess (atomic)
-        run: |
-          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
-            set ftp:ssl-force true;
-            set ssl:verify-certificate no;
-            set net:timeout 60;
-            set ftp:binary;
-            put hostgator/root-htaccess -o public_html/.htaccess.aistore-new;
+            put root-htaccess -o public_html/.htaccess.aistore-new;
             rm -f public_html/.htaccess.bak.aistore 2>/dev/null;
             rename public_html/.htaccess public_html/.htaccess.bak.aistore 2>/dev/null;
             rename public_html/.htaccess.aistore-new public_html/.htaccess;
-            ls public_html/.htaccess;
             bye
           "
 
