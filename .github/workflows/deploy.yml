@@ -100,64 +100,29 @@ jobs:
       - name: Deploy codebase
         run: |
           lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "set ftp:ssl-force true; set ssl:verify-certificate no; set net:timeout 180; lcd deploy; put aistore-codebase.tar.gz -o public_html/aistore-codebase.tar.gz; bye"
-      - name: Fix root .htaccess (non-destructive via lftp)
+      - name: Deploy root .htaccess (backup + replace)
         run: |
-          echo "=== Downloading current root .htaccess ==="
+          echo "=== Backing up existing root .htaccess ==="
           lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
             set ftp:ssl-force true;
             set ssl:verify-certificate no;
             set net:timeout 60;
-            cat public_html/.htaccess -o /tmp/root_htaccess.txt;
+            rm -f public_html/.htaccess.bak.deploy 2>/dev/null;
+            mv public_html/.htaccess public_html/.htaccess.bak.deploy 2>/dev/null;
             bye
-          " 2>/dev/null || { echo "No existing .htaccess, will create new"; echo "" > /tmp/root_htaccess.txt; }
+          " 2>/dev/null && echo "Backed up to .htaccess.bak.deploy" || echo "No existing .htaccess to backup"
 
-          echo "=== Fixing .htaccess locally ==="
-          python3 << 'PYFIX'
-          import re
-          with open('/tmp/root_htaccess.txt', 'r') as f:
-              content = f.read()
-          print(f"Downloaded .htaccess: {len(content)} bytes, {len(content.splitlines())} lines")
-
-          original = content
-
-          # 1. Remove Options +ExecCGI (causes 500 on HostGator shared hosting)
-          content = re.sub(r'^Options\s\+ExecCGI.*$\n?', '', content, flags=re.MULTILINE)
-          if content != original:
-              print("FIXED: Removed 'Options +ExecCGI' (causes 500 on shared hosting)")
-          else:
-              print("OK: No 'Options +ExecCGI' found")
-
-          # 2. Ensure AddHandler cgi-script .cgi is present
-          if 'AddHandler cgi-script' not in content:
-              content = 'AddHandler cgi-script .cgi\n' + content
-              print("FIXED: Added 'AddHandler cgi-script .cgi'")
-          else:
-              print("OK: AddHandler cgi-script present")
-
-          # 3. Ensure /aistore exclusion exists before api.cgi RewriteRule
-          if 'RewriteRule' in content and 'api.cgi' in content and '!^/aistore' not in content:
-              content = content.replace(
-                  'RewriteRule ^api/(.*)$ /api.cgi/$1',
-                  'RewriteCond %{REQUEST_URI} !^/aistore\n  RewriteRule ^api/(.*)$ /api.cgi/$1'
-              )
-              print("FIXED: Added /aistore exclusion to b'AI'tcoin API rule")
-          elif '!^/aistore' in content:
-              print("OK: /aistore exclusion present")
-
-          with open('/tmp/root_htaccess_fixed.txt', 'w') as f:
-              f.write(content)
-          print(f"Fixed .htaccess: {len(content)} bytes")
-          PYFIX
-
-          echo "=== Uploading fixed .htaccess ==="
+          echo "=== Uploading known-good root .htaccess ==="
           lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
             set ftp:ssl-force true;
             set ssl:verify-certificate no;
             set net:timeout 60;
-            put /tmp/root_htaccess_fixed.txt -o public_html/.htaccess;
+            put hostgator/root-htaccess -o public_html/.htaccess;
             bye
           "
-          echo "Root .htaccess fixed and uploaded successfully"
+          echo "Root .htaccess uploaded successfully"
+          echo "Content:"
+          cat hostgator/root-htaccess
       - name: Verify deployment
         if: always()
         run: |
