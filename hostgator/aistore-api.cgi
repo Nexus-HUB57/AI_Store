@@ -13,7 +13,14 @@ import subprocess
 import traceback
 from http.client import HTTPConnection
 
-HOME = os.environ.get('HOME', '/home1/luca2490')
+HOME = os.environ.get('HOME') or os.path.expanduser('~')
+if not HOME or HOME == '/':
+    # Fallback for some CGI environments
+    cwd = os.getcwd()
+    if 'public_html' in cwd:
+        HOME = cwd.split('public_html')[0].rstrip('/')
+    else:
+        HOME = '/home1/luca2490' # Hardcoded fallback if all else fails
 INSTALL_DIR = os.path.join(HOME, 'aistore-api')
 NODE_DIR = os.path.join(INSTALL_DIR, 'node-v20.18.0-linux-x64')
 NODE_BIN = os.path.join(NODE_DIR, 'bin', 'node')

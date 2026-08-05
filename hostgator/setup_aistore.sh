@@ -7,7 +7,16 @@
 # ═══════════════════════════════════════════════════════════
 set -e
 
-HOME="${HOME:-/home1/luca2490}"
+if [ -z "$HOME" ] || [ "$HOME" = "/" ]; then
+    # Fallback for CGI/Non-interactive environments
+    CURRENT_PWD=$(pwd)
+    if [[ "$CURRENT_PWD" == *"/public_html"* ]]; then
+        HOME="${CURRENT_PWD%/public_html*}"
+    else
+        HOME="/home1/luca2490"
+    fi
+fi
+export HOME
 INSTALL="$HOME/aistore-api"
 NODE_VERSION="v20.18.0"
 NODE_DIR="$INSTALL/node-v20.18.0-linux-x64"

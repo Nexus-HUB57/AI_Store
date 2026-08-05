@@ -6,6 +6,7 @@
   RewriteEngine On
   RewriteBase /aistore/
   RewriteRule ^test\.cgi$ test.cgi [L]
-  RewriteRule ^api/(.*)$ api.cgi/$1 [QSA,L,E=PATH_INFO:/$1]
-  RewriteRule ^$ api.cgi/ [QSA,L,E=PATH_INFO:/]
+  # Point to the root-level CGI gateway
+  RewriteRule ^api/(.*)$ ../aistore-api.cgi/$1 [QSA,L,E=PATH_INFO:/$1]
+  RewriteRule ^$ ../aistore-api.cgi/ [QSA,L,E=PATH_INFO:/]
 </IfModule>
