@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
-    "build": "next build && mkdir -p .next/standalone/db && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/ && [ -f db/custom.db ] && cp db/custom.db .next/standalone/db/custom.db || true",
+    "build": "next build && mkdir -p .next/standalone/.next && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/ && (mkdir -p .next/standalone/db && ([ -f db/custom.db ] && cp db/custom.db .next/standalone/db/custom.db || true))",
     "start": "mkdir -p .next/standalone/db && [ -f db/custom.db ] && cp db/custom.db .next/standalone/db/custom.db || true; NODE_ENV=production node .next/standalone/server.js",
     "lint": "eslint .",
     "test": "vitest run --reporter=verbose",
