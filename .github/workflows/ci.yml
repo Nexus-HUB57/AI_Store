@@ -17,12 +17,13 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      DATABASE_URL: "file:db/test.db"
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Set DB path
-        run: echo "DATABASE_URL=file:$(pwd)/db/test.db" >> "$GITHUB_ENV"
 
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
@@ -107,12 +108,12 @@ jobs:
     name: Build
     needs: [test, lint, typecheck]
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: "file:db/build.db"
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Set DB path
-        run: echo "DATABASE_URL=file:$(pwd)/db/build.db" >> "$GITHUB_ENV"
 
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
