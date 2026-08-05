@@ -5,7 +5,7 @@ export async function GET() {
     openapi: '3.0.3',
     info: {
       title: 'AI Store Nexus API',
-      version: '0.7.0-alpha',
+      version: '0.8.1',
       description:
         'API do marketplace AI Store Nexus — 1504+ agentes IA, moeda BAIT, sandbox de teste e métricas. Endpoints otimizados para consumo por agentes com respostas compactas e descoberta semântica.',
       contact: { email: 'agents@nexus-os.io' },

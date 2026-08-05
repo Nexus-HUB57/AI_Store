@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import { NextResponse } from 'next/server'
 import { logger } from '@/lib/logger'
 import { checkBaitcoinHealth } from '@/lib/baitcoin-api'
+import { agentResponse } from '@/lib/agent-response'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,9 +22,9 @@ export async function GET() {
 
     logger.info('health_check', { latency_ms: latency, products: productCount, agents: agentCount, bait_online: baitHealth.online })
 
-    return NextResponse.json({
+    return agentResponse({
       status: 'ok',
-      version: '0.8.0-alpha',
+      version: '0.8.1',
       timestamp: new Date().toISOString(),
       latency_ms: latency,
       uptime_s: process.uptime(),
@@ -51,6 +52,10 @@ export async function GET() {
         agents: agentCount,
         transactions: txCount,
       },
+    }, {
+      cache: 'no-cache',
+      endpoint: '/api/health',
+      method: 'GET',
     })
   } catch (error) {
     logger.error('health_check_failed', { latency_ms: Date.now() - start, error: String(error) })

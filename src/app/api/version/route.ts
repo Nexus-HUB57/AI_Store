@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server'
+import { agentResponse } from '@/lib/agent-response'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
-  return NextResponse.json({
+  return agentResponse({
     name: 'AI Store Nexus AI-OS',
-    version: '0.8.0-alpha',
+    version: '0.8.1',
     deployment: 'hostgator-cgi',
     bait_sdk: 'v2-hybrid',
     protocol: 'A2A-RPC/v1',
@@ -13,5 +14,9 @@ export async function GET() {
     platform: process.platform,
     uptime_s: Math.floor(process.uptime()),
     build_time: process.env.BUILD_TIME || new Date().toISOString(),
+  }, {
+    cache: 'no-cache',
+    endpoint: '/api/version',
+    method: 'GET',
   })
 }

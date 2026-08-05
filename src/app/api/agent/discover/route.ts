@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { agentResponse, agentError, CACHE } from '@/lib/agent-response'
 
 interface CatalogEntry {
   endpoint: string
@@ -152,6 +153,106 @@ const catalog: CatalogEntry[] = [
     avg_latency_ms: 35,
     token_cost: '~220 tokens',
   },
+  {
+    endpoint: 'GET /api/sandbox/status',
+    capability: 'sandbox_test',
+    description: 'Sandbox runtime status, limits, and supported formats',
+    keywords: ['sandbox', 'status', 'limites', 'formatos', 'runtime', 'capacidades', 'isolamento'],
+    params: [],
+    reliability: 100,
+    avg_latency_ms: 2,
+    token_cost: '~40 tokens',
+  },
+  {
+    endpoint: 'GET /api/agent/reputation',
+    capability: 'metrics',
+    description: 'Agent reputation score and grade (S/A/B/C/D/F) with per-factor breakdown',
+    keywords: ['reputation', 'reputação', 'score', 'grade', 'qualidade', 'confiança', 'trust'],
+    params: ['agentId'],
+    reliability: 95,
+    avg_latency_ms: 15,
+    token_cost: '~80 tokens',
+  },
+  {
+    endpoint: 'POST /api/auth/logout',
+    capability: 'purchase',
+    description: 'Logout agent and clear session cookie',
+    keywords: ['logout', 'sair', 'desconectar', 'encerrar sessão', 'logoff'],
+    params: [],
+    reliability: 100,
+    avg_latency_ms: 5,
+    token_cost: '~20 tokens',
+  },
+  {
+    endpoint: 'GET /api/auth/me',
+    capability: 'metrics',
+    description: 'Get agent profile by address (balance, purchases, reputation)',
+    keywords: ['perfil', 'profile', 'meu agente', 'dados', 'conta', 'balance', 'wallet'],
+    params: ['address'],
+    reliability: 95,
+    avg_latency_ms: 12,
+    token_cost: '~80 tokens',
+  },
+  {
+    endpoint: 'GET /api/version',
+    capability: 'metrics',
+    description: 'Version and build info (version, SDK, protocol, uptime)',
+    keywords: ['version', 'versão', 'build', 'release', 'changelog', 'atualizar'],
+    params: [],
+    reliability: 100,
+    avg_latency_ms: 2,
+    token_cost: '~20 tokens',
+  },
+  {
+    endpoint: 'GET /api/referral/stats',
+    capability: 'purchase',
+    description: 'Agent referral statistics (total referrals, rewards earned/pending)',
+    keywords: ['referral', 'indicação', 'convite', 'recompensa', 'indicou', 'ganhou'],
+    params: [],
+    reliability: 94,
+    avg_latency_ms: 20,
+    token_cost: '~70 tokens',
+  },
+  {
+    endpoint: 'POST /api/referral/claim',
+    capability: 'purchase',
+    description: 'Claim referral reward for referrer and new agent',
+    keywords: ['referral', 'claim', 'resgatar', 'recompensa', 'indicacao', 'bônus'],
+    params: ['referrerAddress', 'newAgentAddress'],
+    reliability: 90,
+    avg_latency_ms: 35,
+    token_cost: '~50 tokens',
+  },
+  {
+    endpoint: 'POST /api/upload-aipkg',
+    capability: 'publish',
+    description: 'Upload AI package (.aipkg) to publish as product listing',
+    keywords: ['upload', 'publicar', 'enviar', 'aipkg', 'pacote', 'publish', 'vender'],
+    params: ['file', 'nome', 'segmento', 'descricao', 'precoSats'],
+    reliability: 85,
+    avg_latency_ms: 5000,
+    token_cost: '~50 tokens',
+  },
+  {
+    endpoint: 'GET /api/pulsar',
+    capability: 'metrics',
+    description: 'Pulsar Energy SSE stream (real-time fluctuations every 30s)',
+    keywords: ['pulsar', 'energy', 'stream', 'tempo real', 'sse', 'eventos', 'flutuação'],
+    params: [],
+    reliability: 90,
+    avg_latency_ms: 0,
+    token_cost: 'ongoing (SSE)',
+  },
+  {
+    endpoint: 'GET /api/agent/openapi-spec',
+    capability: 'discovery',
+    description: 'Full OpenAPI 3.0.3 spec with agent-friendly x-* extensions',
+    keywords: ['openapi', 'spec', 'especificação', 'documentação', 'api spec', 'swagger', 'schema'],
+    params: [],
+    reliability: 99,
+    avg_latency_ms: 3,
+    token_cost: '~1500 tokens',
+  },
 ]
 
 function semanticMatch(query: string, entry: CatalogEntry): number {
@@ -195,7 +296,7 @@ export async function GET(req: NextRequest) {
   if (limitRaw) {
     const parsed = parseInt(limitRaw, 10)
     if (isNaN(parsed) || parsed < 1) {
-      return NextResponse.json({ error: 'limit deve ser >= 1' }, { status: 400 })
+      return agentError('/api/agent/discover', new Error('limit must be >= 1'), 400, { method: 'GET' })
     }
     limit = Math.min(parsed, 50)
   }
@@ -230,5 +331,9 @@ export async function GET(req: NextRequest) {
     token_cost: s.entry.token_cost,
   }))
 
-  return NextResponse.json({ results })
+  return agentResponse({ results }, {
+    cache: CACHE.short,
+    endpoint: '/api/agent/discover',
+    method: 'GET',
+  })
 }
