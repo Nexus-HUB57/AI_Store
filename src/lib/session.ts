@@ -7,12 +7,17 @@
 
 import { createHmac } from 'crypto'
 
-const SESSION_SECRET: string =
-  process.env.SESSION_SECRET && process.env.SESSION_SECRET.length >= 16
-    ? process.env.SESSION_SECRET
-    : (process.env.NODE_ENV === 'production'
-        ? (() => { throw new Error('SESSION_SECRET env var is required in production (min 16 chars)') })()
-        : 'dev-only-insecure-session-secret-ok-for-builds')
+function getSecret(): string {
+  const secret = process.env.SESSION_SECRET
+  if (!secret || secret.length < 16) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('SESSION_SECRET env var is required in production (min 16 chars)')
+    }
+    // Dev/build fallback — sessions will be invalid across restarts but build CI works
+    return 'dev-only-insecure-session-secret-ok-for-builds'
+  }
+  return secret
+}
 
 function base64UrlEncode(data: string | Buffer): string {
   return Buffer.from(data).toString('base64url')
@@ -29,7 +34,7 @@ function base64UrlDecode(str: string): string {
 export function signSession(agentId: string): string {
   const payload = base64UrlEncode(agentId)
   const signature = base64UrlEncode(
-    createHmac('sha256', SESSION_SECRET).update(agentId).digest()
+    createHmac('sha256', getSecret()).update(agentId).digest()
   )
   return `${payload}.${signature}`
 }
@@ -52,7 +57,7 @@ export function verifySession(token: string | undefined): string | null {
   }
 
   const expectedSig = base64UrlEncode(
-    createHmac('sha256', SESSION_SECRET).update(agentId).digest()
+    createHmac('sha256', getSecret()).update(agentId).digest()
   )
 
   // Constant-time comparison to prevent timing attacks
