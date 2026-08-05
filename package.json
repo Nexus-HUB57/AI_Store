@@ -22,6 +22,8 @@
     "https:certs": "mkdir -p certs && openssl req -x509 -newkey rsa:2048 -keyout certs/key.pem -out certs/cert.pem -days 365 -nodes -subj '/C=BR/ST=SP/L=SaoPaulo/O=Nexus-AI-OS/CN=localhost'",
     "smoke": "bash scripts/smoke-test.sh",
     "smoke:prod": "bash scripts/smoke-test.sh https://www.mybait.org/aistore",
+    "stress": "bash scripts/stress-test.sh",
+    "stress:prod": "bash scripts/stress-test.sh https://www.mybait.org/aistore 5 50",
     "deploy:check": "npm run test && npm run build && npm run docker:build",
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",

@@ -52,7 +52,7 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     }],
   },
 }, {
-  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills"]
+  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills", "scripts/inspect_db.js"]
 }];
 
 export default eslintConfig;

@@ -154,7 +154,7 @@ test.describe('Purchase Flow', () => {
     // ── Step 13: Verify success state ───────────────────────────────
     // After a successful purchase, the cart panel shows "Transação Confirmada"
     // with a CheckCircle2 icon, along with a TX hash.
-    await expect(cartSheet.locator('text=Transação Confirmada")).toBeVisible({
+    await expect(cartSheet.locator('text=Transação Confirmada')).toBeVisible({
       timeout: 15_000,
     })
 

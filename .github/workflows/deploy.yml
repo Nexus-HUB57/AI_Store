@@ -8,59 +8,66 @@ on:
       - 'prisma/**'
       - 'public/**'
       - 'hostgator/**'
-      - '.github/workflows/**'
+      - '.github/workflows/deploy.yml'
       - 'scripts/seed-full.ts'
       - 'db/**'
       - 'next.config.ts'
       - 'package.json'
       - 'package-lock.json'
       - 'tsconfig.json'
+      - 'eslint.config.mjs'
   workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Deploy reason (optional)'
+        required: false
+        default: 'Manual trigger'
+
+concurrency:
+  group: aistore-deploy
+  cancel-in-progress: true
 
 jobs:
-  pre-check:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check b'AI'tcoin daemon health
-        run: |
-          echo "Checking b'AI'tcoin daemon at https://www.mybait.org/api/api/v1/status ..."
-          HTTP_CODE=$(curl -s -o /tmp/bait-response.json -w '%{http_code}' --max-time 15 "https://www.mybait.org/api/api/v1/status" 2>/dev/null || echo "000")
-          echo "b'AI'tcoin daemon HTTP status: $HTTP_CODE"
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "b'AI'tcoin daemon is ONLINE — safe to deploy AI Store"
-            cat /tmp/bait-response.json | python3 -m json.tool 2>/dev/null | head -10 || true
-          else
-            echo "WARNING: b'AI'tcoin daemon returned HTTP $HTTP_CODE"
-            echo "AI Store will deploy in fallback-simulated wallet mode"
-            echo "The wallet SDK v2 will automatically switch to live mode when daemon recovers"
-          fi
-
   build-and-deploy:
-    needs: pre-check
     runs-on: ubuntu-latest
-    concurrency:
-      group: aistore-deploy
-      cancel-in-progress: true
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+
       - run: npm ci
+
       - run: npx prisma generate
+
       - name: Seed DB
         run: |
           COUNT=$(node -e "const{PrismaClient}=require('@prisma/client');new PrismaClient().product.count().then(c=>{console.log(c);process.exit(c>0?0:1)})" 2>/dev/null || echo "0")
           if [ "$COUNT" = "0" ]; then
             npx tsx scripts/seed-full.ts
           fi
-      - name: Build
+
+      - name: Pre-check bAIcoin daemon
+        run: |
+          echo "Checking bAIcoin daemon health..."
+          HTTP_CODE=$(curl -s -o /tmp/bait.json -w '%{http_code}' --max-time 15 "https://www.mybait.org/api/api/v1/status" 2>/dev/null || echo "000")
+          echo "bAIcoin daemon HTTP: $HTTP_CODE"
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "bAIcoin ONLINE"
+          else
+            echo "bAIcoin offline — deploying in simulated wallet mode"
+          fi
+
+      - name: Build Next.js
         env:
           NODE_ENV: production
           NEXT_PUBLIC_BASE_PATH: /aistore
           NEXT_PUBLIC_BASE_URL: https://www.mybait.org/aistore
         run: npx next build
-      - name: Package
+
+      - name: Package deploy artifact
         run: |
           mkdir -p deploy/standalone
           cp -r .next/standalone/ deploy/standalone/
@@ -75,85 +82,86 @@ jobs:
           cp hostgator/api.cgi hostgator/.htaccess hostgator/setup_aistore.sh deploy/
           chmod +x deploy/api.cgi deploy/setup_aistore.sh
           cd deploy/standalone && tar czf ../aistore-codebase.tar.gz . && cd ../..
-      - name: Parse credentials
+
+      - name: Parse HostGator credentials
         env:
           HG_CREDS: ${{ secrets.CREDENCIAIS_HOSTGATOR }}
         run: |
           if [ -z "$HG_CREDS" ]; then
-            echo "ERROR: Secret CREDENCIAIS_HOSTGATOR not set in AI_Store repo"
-            echo "Go to: https://github.com/Nexus-HUB57/AI_Store/settings/secrets/actions"
-            echo "Add secret: CREDENCIAIS_HOSTGATOR (copy from b-AI-tcoin repo secrets)"
+            echo "ERROR: Secret CREDENCIAIS_HOSTGATOR not set"
+            echo "Add it at: https://github.com/Nexus-HUB57/AI_Store/settings/secrets/actions"
             exit 1
           fi
           echo "Secret found (${#HG_CREDS} chars)"
-          echo "First 3 chars: ${HG_CREDS:0:3}"
-          # Try JSON parse
-          eval "$(python3 -c "
-import os, json, sys
-try:
-    c = json.loads(os.environ['HG_CREDS'])
-    print(f\"HOST={c.get('host','')}\")
-    print(f\"USER={c.get('user','')}\")
-    print(f\"PASS={c.get('password','')}\")
-    print(f\"PORT={c.get('port',21)}\")
-    print('FORMAT=json')
-except Exception as e:
-    print(f'ERROR: Failed to parse as JSON: {e}', file=sys.stderr)
-    # Try colon-separated format: host:port:user:password
-    parts = os.environ['HG_CREDS'].strip().split(':')
-    if len(parts) >= 4:
-        print(f'HOST={parts[0]}')
-        print(f'PORT={parts[1]}')
-        print(f'USER={parts[2]}')
-        print(f'PASS={parts[3]}')
-        print('FORMAT=colon')
-    elif len(parts) == 3:
-        print(f'HOST={parts[0]}')
-        print(f'PORT=21')
-        print(f'USER={parts[1]}')
-        print(f'PASS={parts[2]}')
-        print('FORMAT=colon_no_port')
-    else:
-        print('FORMAT=unknown', file=sys.stderr)
-    sys.exit(1 if len(parts) < 3 else 0)
-" 2>&1)
-          if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$PASS" ]; then
-            echo "ERROR: Could not parse credentials. Expected JSON or host:port:user:password"
-            echo "Secret value starts with: ${HG_CREDS:0:10}..."
-            exit 1
-          fi
-          echo "Parsed: HOST=$HOST PORT=$PORT USER=$USER PASS=$(echo $PASS | head -c 3)..."
-          echo "HOST=$HOST" >> $GITHUB_ENV
-          echo "USER=$USER" >> $GITHUB_ENV
-          echo "PASS=$PASS" >> $GITHUB_ENV
-          echo "PORT=$PORT" >> $GITHUB_ENV
+          python3 << 'PYEOF'
+          import os, json, sys
+          raw = os.environ['HG_CREDS'].strip()
+          try:
+              c = json.loads(raw)
+              host, user, pwd = c.get('host',''), c.get('user',''), c.get('password','')
+              port = c.get('port', 21)
+          except Exception:
+              parts = raw.split(':')
+              if len(parts) >= 4:
+                  host, port, user, pwd = parts[0], parts[1], parts[2], parts[3]
+              elif len(parts) == 3:
+                  host, port, user, pwd = parts[0], '21', parts[1], parts[2]
+              else:
+                  print('FORMAT_ERROR', file=sys.stderr)
+                  sys.exit(1)
+          if not host or not user or not pwd:
+              print('MISSING_FIELDS', file=sys.stderr)
+              sys.exit(1)
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write(f'HOST={host}\n')
+              f.write(f'PORT={port}\n')
+              f.write(f'USER={user}\n')
+              f.write(f'PASS={pwd}\n')
+          print(f'Parsed: HOST={host} PORT={port} USER={user}')
+          PYEOF
+
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+
       - name: Test FTP connection
         run: |
-          echo "=== Testing FTP connection ==="
-          echo "Host: $HOST  Port: $PORT  User: $USER"
           lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
             set ftp:ssl-force true;
             set ssl:verify-certificate no;
             set net:timeout 30;
             pwd;
-            ls -la public_html/;
-            echo '--- Existing aistore .htaccess (if any) ---';
-            cat public_html/aistore/.htaccess 2>/dev/null || echo 'NOT FOUND';
-            echo '--- Existing root .htaccess (first 20 lines) ---';
-            cat public_html/.htaccess 2>/dev/null | head -20 || echo 'NOT FOUND';
+            ls public_html/aistore/ 2>/dev/null || echo 'aistore dir not yet created';
             bye
           "
-          echo "=== FTP connection test complete ==="
-      - name: Deploy files
+
+      - name: Deploy CGI and config files
         run: |
-          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "set ftp:ssl-force true; set ssl:verify-certificate no; set net:timeout 60; mkdir -p public_html/aistore; lcd deploy; put api.cgi -o public_html/aistore/api.cgi; chmod 755 public_html/aistore/api.cgi; put .htaccess -o public_html/aistore/.htaccess; put setup_aistore.sh -o public_html/aistore/setup_aistore.sh; chmod 755 public_html/aistore/setup_aistore.sh; bye"
-      - name: Deploy codebase
+          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
+            set ftp:ssl-force true;
+            set ssl:verify-certificate no;
+            set net:timeout 60;
+            mkdir -p public_html/aistore;
+            lcd deploy;
+            put api.cgi -o public_html/aistore/api.cgi;
+            chmod 755 public_html/aistore/api.cgi;
+            put .htaccess -o public_html/aistore/.htaccess;
+            put setup_aistore.sh -o public_html/aistore/setup_aistore.sh;
+            chmod 755 public_html/aistore/setup_aistore.sh;
+            bye
+          "
+
+      - name: Deploy codebase tarball
         run: |
-          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "set ftp:ssl-force true; set ssl:verify-certificate no; set net:timeout 180; lcd deploy; put aistore-codebase.tar.gz -o public_html/aistore-codebase.tar.gz; bye"
-      - name: Deploy root .htaccess (backup + replace)
+          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
+            set ftp:ssl-force true;
+            set ssl:verify-certificate no;
+            set net:timeout 180;
+            lcd deploy;
+            put aistore-codebase.tar.gz -o public_html/aistore-codebase.tar.gz;
+            bye
+          "
+
+      - name: Deploy root .htaccess (non-destructive)
         run: |
-          echo "=== Backing up existing root .htaccess ==="
           lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
             set ftp:ssl-force true;
             set ssl:verify-certificate no;
@@ -161,9 +169,7 @@ except Exception as e:
             rm -f public_html/.htaccess.bak.deploy 2>/dev/null;
             mv public_html/.htaccess public_html/.htaccess.bak.deploy 2>/dev/null;
             bye
-          " 2>/dev/null && echo "Backed up to .htaccess.bak.deploy" || echo "No existing .htaccess to backup"
-
-          echo "=== Uploading known-good root .htaccess ==="
+          " 2>/dev/null || true
           lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
             set ftp:ssl-force true;
             set ssl:verify-certificate no;
@@ -171,35 +177,21 @@ except Exception as e:
             put hostgator/root-htaccess -o public_html/.htaccess;
             bye
           "
-          echo "Root .htaccess uploaded successfully"
-          echo "Content:"
-          cat hostgator/root-htaccess
-      - name: Verify deployment
+
+      - name: Run smoke test
         if: always()
         run: |
           echo "=== Deploy Verification ==="
-          echo "AI Store:     https://www.mybait.org/aistore/"
-          echo "Health Check: https://www.mybait.org/aistore/api/health"
-          echo "Version:      https://www.mybait.org/aistore/api/version"
-          echo "b'AI'tcoin:    https://www.mybait.org/api/api/v1/status"
-          echo ""
-          echo "=== Live Health Check ==="
-          sleep 5
+          sleep 8
           HTTP_CODE=$(curl -s -o /tmp/verify.json -w '%{http_code}' --max-time 60 'https://www.mybait.org/aistore/api/version' 2>/dev/null || echo "000")
-          echo "AI Store /api/version HTTP status: $HTTP_CODE"
+          echo "AI Store /api/version: HTTP $HTTP_CODE"
           if [ "$HTTP_CODE" = "200" ]; then
             echo "DEPLOY SUCCESSFUL"
             cat /tmp/verify.json | python3 -m json.tool 2>/dev/null || cat /tmp/verify.json
           else
-            echo "WARNING: AI Store returned HTTP $HTTP_CODE"
-            echo "The first request triggers Node.js setup (~30s). Try again in 60s."
-            echo "If still failing, check: https://www.mybait.org/aistore/api/health"
+            echo "WARNING: HTTP $HTTP_CODE — Node.js may need ~30s to start. Check manually."
           fi
-          echo ""
-          HTTP_BAIT=$(curl -s -o /tmp/bait-verify.json -w '%{http_code}' --max-time 15 'https://www.mybait.org/api/api/v1/status' 2>/dev/null || echo "000")
-          echo "b'AI'tcoin daemon HTTP status: $HTTP_BAIT"
-          if [ "$HTTP_BAIT" = "200" ]; then
-            echo "b'AI'tcoin daemon ONLINE"
-          else
-            echo "b'AI'tcoin daemon offline — AI Store will use simulated wallet mode"
-          fi
+
+      - name: Run production smoke test
+        if: always()
+        run: bash scripts/smoke-test.sh https://www.mybait.org/aistore || true

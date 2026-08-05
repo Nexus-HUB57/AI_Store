@@ -23,6 +23,7 @@ export function usePulsarSSE() {
   const eventSourceRef = useRef<EventSource | null>(null)
   const reconnectTimeout = useRef<ReturnType<typeof setTimeout>>(undefined)
   const reconnectAttempts = useRef(0)
+  const connectRef = useRef<() => void>(() => {})
 
   const connect = useCallback(() => {
     if (eventSourceRef.current) {
@@ -61,9 +62,13 @@ export function usePulsarSSE() {
 
       const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 10000)
       reconnectAttempts.current++
-      reconnectTimeout.current = setTimeout(connect, delay)
+      reconnectTimeout.current = setTimeout(() => connectRef.current(), delay)
     }
   }, [setConnected, pushUpdate])
+
+  useEffect(() => {
+    connectRef.current = connect
+  }, [connect])
 
   useEffect(() => {
     connect()
