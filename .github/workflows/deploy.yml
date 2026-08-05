@@ -141,6 +141,7 @@ jobs:
             set ftp:ssl-force true;
             set ssl:verify-certificate no;
             set net:timeout 60;
+            set ftp:binary;
             mkdir -p public_html/aistore;
             lcd deploy;
             put api.cgi -o public_html/aistore/api.cgi;

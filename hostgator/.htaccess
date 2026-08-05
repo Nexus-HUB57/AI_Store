@@ -1,4 +1,5 @@
 # AI Store — HostGator
+Options +ExecCGI
 AddHandler cgi-script .cgi
 
 <IfModule mod_rewrite.c>
