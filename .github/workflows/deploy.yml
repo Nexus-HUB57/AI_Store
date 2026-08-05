@@ -31,10 +31,11 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      DATABASE_URL: 'file:db/custom.db'
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set absolute DB path
+        run: echo "DATABASE_URL=file:$(pwd)/db/custom.db" >> "$GITHUB_ENV"
 
       - uses: actions/setup-node@v4
         with:
