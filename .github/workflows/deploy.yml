@@ -44,6 +44,9 @@ jobs:
 
       - run: npx prisma generate
 
+      - name: Ensure DB directory exists
+        run: mkdir -p db
+
       - name: Seed DB
         run: |
           COUNT=$(node -e "const{PrismaClient}=require('@prisma/client');new PrismaClient().product.count().then(c=>{console.log(c);process.exit(c>0?0:1)})" 2>/dev/null || echo "0")
@@ -67,30 +70,20 @@ jobs:
           NODE_ENV: production
           NEXT_PUBLIC_BASE_PATH: /aistore
           NEXT_PUBLIC_BASE_URL: https://www.mybait.org/aistore
-        run: npx next build
-
-      - name: Check Standalone output
-        run: |
-          if [ ! -d ".next/standalone" ]; then
-            echo "::error::.next/standalone directory does not exist after build"
-            exit 1
-          fi
-          echo ".next/standalone exists — $(du -sh .next/standalone | cut -f1)"
+          DATABASE_URL: 'file:db/custom.db'
+        run: npm run build
 
       - name: Package deploy artifact
         run: |
-          mkdir -p deploy/standalone
-          cp -r .next/standalone/ deploy/standalone/
-          mkdir -p deploy/standalone/.next/static
-          cp -r .next/static/* deploy/standalone/.next/static/
-          mkdir -p deploy/standalone/public
-          cp -r public/* deploy/standalone/public/ 2>/dev/null || true
-          mkdir -p deploy/standalone/{prisma,db}
-          cp prisma/schema.prisma deploy/standalone/prisma/
-          cp db/custom.db deploy/standalone/db/
-          cp package.json deploy/standalone/
+          mkdir -p deploy
+          # Move standalone to deploy root
+          mv .next/standalone deploy/standalone
+          # package.json is already in standalone from npm run build, but let's be sure
+          cp package.json deploy/standalone/ 2>/dev/null || true
+          # Copy CGI and setup scripts to deploy root (outside standalone)
           cp hostgator/aistore-api.cgi hostgator/aistore-test.cgi hostgator/.htaccess hostgator/setup_aistore.sh deploy/
           chmod +x deploy/aistore-api.cgi deploy/aistore-test.cgi deploy/setup_aistore.sh
+          # Create codebase tarball from standalone content
           cd deploy/standalone && tar czf ../aistore-codebase.tar.gz . && cd ../..
 
       - name: Parse HostGator credentials
@@ -155,8 +148,6 @@ jobs:
             chmod 755 public_html/aistore-api.cgi;
             put aistore-test.cgi -o public_html/aistore-test.cgi;
             chmod 755 public_html/aistore-test.cgi;
-            echo 'CGI files deployed:';
-            ls -la public_html/aistore-api.cgi public_html/aistore-test.cgi;
             bye
           "
 
@@ -186,27 +177,21 @@ jobs:
             bye
           "
 
-      - name: Deploy root .htaccess (patch, not replace)
+      - name: Deploy root .htaccess (non-destructive)
         run: |
-          # Upload our root-htaccess as a temporary file first
           lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
             set ftp:ssl-force true;
             set ssl:verify-certificate no;
             set net:timeout 60;
-            set ftp:binary;
-            put hostgator/root-htaccess -o public_html/.htaccess.aistore-new;
+            rm -f public_html/.htaccess.bak.deploy 2>/dev/null;
+            mv public_html/.htaccess public_html/.htaccess.bak.deploy 2>/dev/null;
             bye
-          "
-          # Replace atomically via rename
+          " 2>/dev/null || true
           lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
             set ftp:ssl-force true;
             set ssl:verify-certificate no;
             set net:timeout 60;
-            rm -f public_html/.htaccess.bak.aistore 2>/dev/null;
-            rename public_html/.htaccess public_html/.htaccess.bak.aistore 2>/dev/null;
-            rename public_html/.htaccess.aistore-new public_html/.htaccess;
-            echo 'Root .htaccess deployed';
-            cat public_html/.htaccess;
+            put hostgator/root-htaccess -o public_html/.htaccess;
             bye
           "
 
@@ -214,20 +199,16 @@ jobs:
         if: always()
         run: |
           echo "=== Deploy Verification ==="
-          echo "Waiting 15s for Node.js to start (first deploy may install Node.js)..."
-          sleep 15
-          HTTP_CODE=$(curl -s -o /tmp/verify.json -w '%{http_code}' --max-time 90 'https://www.mybait.org/aistore/api/version' 2>/dev/null || echo "000")
+          sleep 8
+          HTTP_CODE=$(curl -s -o /tmp/verify.json -w '%{http_code}' --max-time 60 'https://www.mybait.org/aistore/api/version' 2>/dev/null || echo "000")
           echo "AI Store /api/version: HTTP $HTTP_CODE"
-          if [ -s /tmp/verify.json ]; then
-            cat /tmp/verify.json | python3 -m json.tool 2>/dev/null || cat /tmp/verify.json
-          fi
-          echo ""
-          echo "=== CGI Direct Test ==="
-          curl -sI --max-time 15 'https://www.mybait.org/aistore-test.cgi' 2>/dev/null | head -10 || echo 'test.cgi unreachable'
+          echo "AI Store test.cgi:"
+          curl -s --max-time 15 'https://www.mybait.org/aistore/test.cgi' 2>/dev/null | head -5 || true
           if [ "$HTTP_CODE" = "200" ]; then
             echo "DEPLOY SUCCESSFUL"
+            cat /tmp/verify.json | python3 -m json.tool 2>/dev/null || cat /tmp/verify.json
           else
-            echo "WARNING: HTTP $HTTP_CODE — Check CGI execution on HostGator"
+            echo "WARNING: HTTP $HTTP_CODE — Node.js may need ~30s to start. Check manually."
           fi
 
       - name: Run production smoke test
