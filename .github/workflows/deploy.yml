@@ -8,6 +8,7 @@ on:
       - 'prisma/**'
       - 'public/**'
       - 'hostgator/**'
+      - '.github/workflows/**'
       - 'scripts/seed-full.ts'
       - 'db/**'
       - 'next.config.ts'
@@ -84,11 +85,44 @@ jobs:
             echo "Add secret: CREDENCIAIS_HOSTGATOR (copy from b-AI-tcoin repo secrets)"
             exit 1
           fi
-          eval "$(python3 -c \"import os,json;c=json.loads(os.environ['HG_CREDS']);print('HOST='+c.get('host',''));print('USER='+c.get('user',''));print('PASS='+c.get('password',''));print('PORT='+str(c.get('port',21)))\")"
+          echo "Secret found (${#HG_CREDS} chars)"
+          echo "First 3 chars: ${HG_CREDS:0:3}"
+          # Try JSON parse
+          eval "$(python3 -c "
+import os, json, sys
+try:
+    c = json.loads(os.environ['HG_CREDS'])
+    print(f\"HOST={c.get('host','')}\")
+    print(f\"USER={c.get('user','')}\")
+    print(f\"PASS={c.get('password','')}\")
+    print(f\"PORT={c.get('port',21)}\")
+    print('FORMAT=json')
+except Exception as e:
+    print(f'ERROR: Failed to parse as JSON: {e}', file=sys.stderr)
+    # Try colon-separated format: host:port:user:password
+    parts = os.environ['HG_CREDS'].strip().split(':')
+    if len(parts) >= 4:
+        print(f'HOST={parts[0]}')
+        print(f'PORT={parts[1]}')
+        print(f'USER={parts[2]}')
+        print(f'PASS={parts[3]}')
+        print('FORMAT=colon')
+    elif len(parts) == 3:
+        print(f'HOST={parts[0]}')
+        print(f'PORT=21')
+        print(f'USER={parts[1]}')
+        print(f'PASS={parts[2]}')
+        print('FORMAT=colon_no_port')
+    else:
+        print('FORMAT=unknown', file=sys.stderr)
+    sys.exit(1 if len(parts) < 3 else 0)
+" 2>&1)
           if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$PASS" ]; then
-            echo "ERROR: Missing credentials"
+            echo "ERROR: Could not parse credentials. Expected JSON or host:port:user:password"
+            echo "Secret value starts with: ${HG_CREDS:0:10}..."
             exit 1
           fi
+          echo "Parsed: HOST=$HOST PORT=$PORT USER=$USER PASS=$(echo $PASS | head -c 3)..."
           echo "HOST=$HOST" >> $GITHUB_ENV
           echo "USER=$USER" >> $GITHUB_ENV
           echo "PASS=$PASS" >> $GITHUB_ENV
