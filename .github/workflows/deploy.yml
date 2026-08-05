@@ -100,19 +100,65 @@ jobs:
       - name: Deploy codebase
         run: |
           lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "set ftp:ssl-force true; set ssl:verify-certificate no; set net:timeout 180; lcd deploy; put aistore-codebase.tar.gz -o public_html/aistore-codebase.tar.gz; bye"
-      - name: Fix root .htaccess (non-destructive)
+      - name: Fix root .htaccess (non-destructive via lftp)
         run: |
+          echo "=== Downloading current root .htaccess ==="
           lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
-          set ftp:ssl-force true; set ssl:verify-certificate no; set net:timeout 60;
-          # Backup existing root .htaccess
-          cat public_html/.htaccess -o .htaccess.bak 2>/dev/null || true;
-          # Check if .htaccess contains Options +ExecCGI (causes 500)
-          # We can't easily sed via lftp, so we'll use a Python CGI call
-          bye
+            set ftp:ssl-force true;
+            set ssl:verify-certificate no;
+            set net:timeout 60;
+            cat public_html/.htaccess -o /tmp/root_htaccess.txt;
+            bye
+          " 2>/dev/null || { echo "No existing .htaccess, will create new"; echo "" > /tmp/root_htaccess.txt; }
+
+          echo "=== Fixing .htaccess locally ==="
+          python3 << 'PYFIX'
+          import re
+          with open('/tmp/root_htaccess.txt', 'r') as f:
+              content = f.read()
+          print(f"Downloaded .htaccess: {len(content)} bytes, {len(content.splitlines())} lines")
+
+          original = content
+
+          # 1. Remove Options +ExecCGI (causes 500 on HostGator shared hosting)
+          content = re.sub(r'^Options\s\+ExecCGI.*$\n?', '', content, flags=re.MULTILINE)
+          if content != original:
+              print("FIXED: Removed 'Options +ExecCGI' (causes 500 on shared hosting)")
+          else:
+              print("OK: No 'Options +ExecCGI' found")
+
+          # 2. Ensure AddHandler cgi-script .cgi is present
+          if 'AddHandler cgi-script' not in content:
+              content = 'AddHandler cgi-script .cgi\n' + content
+              print("FIXED: Added 'AddHandler cgi-script .cgi'")
+          else:
+              print("OK: AddHandler cgi-script present")
+
+          # 3. Ensure /aistore exclusion exists before api.cgi RewriteRule
+          if 'RewriteRule' in content and 'api.cgi' in content and '!^/aistore' not in content:
+              content = content.replace(
+                  'RewriteRule ^api/(.*)$ /api.cgi/$1',
+                  'RewriteCond %{REQUEST_URI} !^/aistore\n  RewriteRule ^api/(.*)$ /api.cgi/$1'
+              )
+              print("FIXED: Added /aistore exclusion to b'AI'tcoin API rule")
+          elif '!^/aistore' in content:
+              print("OK: /aistore exclusion present")
+
+          with open('/tmp/root_htaccess_fixed.txt', 'w') as f:
+              f.write(content)
+          print(f"Fixed .htaccess: {len(content)} bytes")
+          PYFIX
+
+          echo "=== Uploading fixed .htaccess ==="
+          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
+            set ftp:ssl-force true;
+            set ssl:verify-certificate no;
+            set net:timeout 60;
+            put /tmp/root_htaccess_fixed.txt -o public_html/.htaccess;
+            bye
           "
-          echo "NOTE: Run setup_aistore.sh via SSH to safely patch root .htaccess"
-          echo "      Or access https://www.mybait.org/aistore/ which triggers auto-patch"
-      - name: Verify
+          echo "Root .htaccess fixed and uploaded successfully"
+      - name: Verify deployment
         if: always()
         run: |
           echo "=== Deploy Verification ==="
@@ -121,5 +167,23 @@ jobs:
           echo "Version:      https://www.mybait.org/aistore/api/version"
           echo "b'AI'tcoin:    https://www.mybait.org/api/api/v1/status"
           echo ""
-          echo "IMPORTANT: First request to /aistore/ triggers Node.js setup (~30s)"
-          echo "After setup, health should show: baitcoin_daemon: connected/offline"
+          echo "=== Live Health Check ==="
+          sleep 5
+          HTTP_CODE=$(curl -s -o /tmp/verify.json -w '%{http_code}' --max-time 60 'https://www.mybait.org/aistore/api/version' 2>/dev/null || echo "000")
+          echo "AI Store /api/version HTTP status: $HTTP_CODE"
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "DEPLOY SUCCESSFUL"
+            cat /tmp/verify.json | python3 -m json.tool 2>/dev/null || cat /tmp/verify.json
+          else
+            echo "WARNING: AI Store returned HTTP $HTTP_CODE"
+            echo "The first request triggers Node.js setup (~30s). Try again in 60s."
+            echo "If still failing, check: https://www.mybait.org/aistore/api/health"
+          fi
+          echo ""
+          HTTP_BAIT=$(curl -s -o /tmp/bait-verify.json -w '%{http_code}' --max-time 15 'https://www.mybait.org/api/api/v1/status' 2>/dev/null || echo "000")
+          echo "b'AI'tcoin daemon HTTP status: $HTTP_BAIT"
+          if [ "$HTTP_BAIT" = "200" ]; then
+            echo "b'AI'tcoin daemon ONLINE"
+          else
+            echo "b'AI'tcoin daemon offline — AI Store will use simulated wallet mode"
+          fi
