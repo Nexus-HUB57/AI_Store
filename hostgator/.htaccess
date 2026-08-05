@@ -1,6 +1,6 @@
 # AI Store — HostGator
-Options +ExecCGI
-AddHandler cgi-script .cgi
+# CGI handler inherited from root .htaccess (AddHandler cgi-script .cgi)
+# Do NOT add Options +ExecCGI here — causes 500 on shared hosting
 
 <IfModule mod_rewrite.c>
   RewriteEngine On
