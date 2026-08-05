@@ -47,10 +47,12 @@ jobs:
       - name: Ensure DB directory exists
         run: mkdir -p db
 
-      - name: Seed DB
+      - name: Verify DB
         run: |
-          COUNT=$(node -e "const{PrismaClient}=require('@prisma/client');new PrismaClient().product.count().then(c=>{console.log(c);process.exit(c>0?0:1)})" 2>/dev/null || echo "0")
-          if [ "$COUNT" = "0" ]; then
+          COUNT=$(node -e "const{PrismaClient}=require('@prisma/client');new PrismaClient().product.count().then(c=>{console.log(c);process.exit(0)})" 2>&1 || echo "0")
+          echo "Products in DB: $COUNT"
+          if [ "$COUNT" -lt 1 ] 2>/dev/null; then
+            echo "DB empty, seeding..."
             npx tsx scripts/seed-full.ts
           fi
 
