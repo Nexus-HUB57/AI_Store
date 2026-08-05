@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -128,17 +128,15 @@ export function LoginDialog({ open: controlledOpen, onOpenChange: controlledOnOp
   const setOpen = controlledOnOpenChange ?? setInternalOpen
   const [address, setAddress] = useState('')
   const [name, setName] = useState('')
-  const [referralCode, setReferralCode] = useState('')
+  const [referralCode, setReferralCode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      return params.get('ref') || ''
+    }
+    return ''
+  })
   const [loginStep, setLoginStep] = useState<'form' | 'signing'>('form')
   const [loginResult, setLoginResult] = useState<{ isNew: boolean; signupBonus?: number; referralBonusGiven?: boolean } | null>(null)
-
-  // Auto-fill referral code from URL
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const params = new URLSearchParams(window.location.search)
-    const ref = params.get('ref')
-    if (ref) setReferralCode(ref)
-  }, [])
 
   const handleLogin = async () => {
     setLoginStep('signing')

@@ -75,7 +75,14 @@ export default function ProductPageClient({ product, initialReviewCount }: Props
     } catch {}
   }, [product.id, initialReviewCount])
 
-  useEffect(() => { fetchReviews() }, [fetchReviews])
+  useEffect(() => {
+    let isMounted = true
+    const loadReviews = async () => {
+      await fetchReviews()
+    }
+    loadReviews()
+    return () => { isMounted = false }
+  }, [fetchReviews])
 
   const inCart = items.some((i) => i.id === product.id)
   const purchaseCount = isAuthenticated && agent ? agent.purchaseCount : 0
