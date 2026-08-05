@@ -2,35 +2,29 @@
 
 ---
 
-Task ID: 1
+Task ID: 2
 Agent: Super Z (main)
-Task: Prosseguir desenvolvimento, atualizar plataforma/Deploy, validar e sincronizar 1504 produtos
+Task: Prosseguir desenvolvimento end-to-end, deploy, validar produtos
 
 Work Log:
 
-- Explored full project structure: Next.js 16 + Prisma/SQLite + Tailwind CSS 4
-- Ran comprehensive audit on 1504 products in SQLite DB (audit_products_v2.py)
-  - All 10 required fields: ✅ populated
-  - 1504 unique slugs: ✅ no duplicates
-  - Prices 2000-10000 sats: ✅ all in range
-  - 6 valid segments: ✅ all valid
-  - Ratings 0-5: ✅ all in range (min 3.2, max 5.0, avg 4.10)
-  - GitHub URLs: ✅ all valid
-  - Descriptions: ✅ all 20+ chars
-  - Pulsar Energy 65-100, Fitness Score 55-100: ✅ all in range
-  - **Result: 0 CRITICAL, 0 HIGH, 0 MEDIUM, 0 LOW issues**
-- Fixed broken OpenAPI spec (previous session compressed 554→70 lines, broke 14 braces)
-  - Restored from git, updated version to 0.8.1
-- Bumped version: 0.7.0-alpha → 0.8.1 in package.json, /api/version, /api/health, OpenAPI spec
-- Cleaned up temp files (aistore-main.json, baitcoin-status.json, mybait-root.json)
-- All 171 tests passing, 1533 routes, 0 build errors
-- Committed and pushed to GitHub: 0aebf8f
+- Commit v0.8.1 com audit de 1504 produtos (0 issues)
+- Push triggerou deploy workflow (secret recém-adicionada)
+- Descoberto 500 em TODO o site (root .htaccess corrompido)
+- Identificado bug: deploy workflow tinha step de .htaccess que era no-op
+- Reescrito workflow 4x para corrigir .htaccess via lftp
+- Descoberto que mudanças no deploy.yml NÃO triggeravam o workflow (ausente do paths filter)
+- Adicionado `.github/workflows/**` ao paths filter
+- Adicionado parsing robusto de credenciais (JSON + colon format)
+- Adicionado step de debug FTP que lista arquivos no servidor
+- Ainda 500: deploy workflow provavelmente falhando (credenciais ou FTP)
+- Raiz / funciona (200, 82KB), mas /aistore/ e /api/ retornam 500
 
 Stage Summary:
 
-- 1504/1504 products 100% validated — zero data integrity issues
-- Platform version bumped to v0.8.1
-- Build clean: 1533 routes, 171 tests, 0 errors
-- Pushed to main → deploy workflow triggered
-- NOTE: CREDENCIAIS_HOSTGATOR secret still needs to be added to AI_Store repo for deploy to succeed
-  - URL: https://github.com/Nexus-HUB57/AI_Store/settings/secrets/actions
+- Causa raiz do 500: .htaccess antigo com 'Options +ExecCGI' no /aistore/ (deploy nunca executou com sucesso)
+- O deploy workflow NUNCA executou com sucesso anteriormente (secret inexistente)
+- Workflow agora tem debug, parsing robusto, e trigger correto
+- PRÓXIMO PASSO: Verificar output do workflow em GitHub Actions ou via SSH
+- Verificar formato da secret CREDENCIAIS_HOSTGATOR (deve ser JSON: {"host":"...","user":"...","password":"...","port":21})
+- URLs do workflow: https://github.com/Nexus-HUB57/AI_Store/actions

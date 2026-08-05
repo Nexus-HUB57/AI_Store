@@ -1,0 +1,47 @@
+[
+  {
+    "url": "https://github.com/cxbxmxcx/Nexus",
+    "name": "AI Agent Nexus: Open-Source Agent Platform",
+    "snippet": "AI Agent Nexus is an open-source platform for developing, testing, and hosting AI Agents, built with Streamlit and Gradio. It offers a user-friendly chat ...",
+    "host_name": "github.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/marketplace/actions/upload-to-nexus-mods",
+    "name": "Upload to Nexus Mods · Actions · GitHub Marketplace",
+    "snippet": "This GitHub Action uploads a new version of a file to NexusMods using the NexusMods v3 API. It is designed to automate the process of uploading mod files as ...",
+    "host_name": "github.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=m293_EsOs7I&vl=en",
+    "name": "How to use AI models in your GitHub Actions workflows",
+    "snippet": "By adding a simple permission to your workflow files, you can now call powerful AI models from GitHub Actions. See how this enables AI-powered ...",
+    "host_name": "www.youtube.com",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/modelscope/Nexus-Gen/actions",
+    "name": "Actions · modelscope/Nexus-Gen",
+    "snippet": "Automate your workflow from idea to production. GitHub Actions makes it easy to automate all your software workflows, now with world-class CI/CD.",
+    "host_name": "github.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://help.sonatype.com/en/sonatype-github-actions.html",
+    "name": "Sonatype GitHub Actions",
+    "snippet": "This integration provides a set of GitHub Actions for interacting with different Sonatype products directly within your GitHub workflows.",
+    "host_name": "help.sonatype.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  }
+]
