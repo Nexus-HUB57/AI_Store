@@ -7,6 +7,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'agentId obrigatório' }, { status: 400 })
   }
 
+  try {
   const [sellerTxs, buyerTxs, myReviews, agent] = await Promise.all([
     db.transaction.findMany({
       where: { sellerId: agentId },
@@ -55,4 +56,8 @@ export async function GET(req: NextRequest) {
     products,
     salesByDay,
   })
+  } catch (error) {
+    console.error('agent/dashboard API error:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
 }

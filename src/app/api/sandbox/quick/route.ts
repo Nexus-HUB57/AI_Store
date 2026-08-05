@@ -133,6 +133,7 @@ export async function GET(req: NextRequest) {
   const rawMaxTokens = req.nextUrl.searchParams.get('maxTokens')
   const maxTokens = rawMaxTokens ? Math.min(1000, Math.max(1, parseInt(rawMaxTokens, 10) || 100)) : 100
 
+  try {
   const product = await db.product.findUnique({ where: { id: productId } })
   if (!product) {
     return NextResponse.json(
@@ -165,4 +166,8 @@ export async function GET(req: NextRequest) {
       rate_limit_note: 'Máximo de 10 quick trials por minuto por agente (controlado pelo middleware)',
     },
   })
+  } catch (error) {
+    console.error('sandbox/quick API error:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
 }

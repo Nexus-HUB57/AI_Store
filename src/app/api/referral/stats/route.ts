@@ -7,6 +7,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'agentId obrigatório' }, { status: 400 })
   }
 
+  try {
   const [rewards, agent] = await Promise.all([
     db.referralReward.findMany({
       where: { referrerId: agentId },
@@ -34,4 +35,8 @@ export async function GET(req: NextRequest) {
     totalPending,
     rewards,
   })
+  } catch (error) {
+    console.error('referral/stats API error:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
 }

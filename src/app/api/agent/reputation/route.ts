@@ -8,6 +8,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'agentId obrigatório' }, { status: 400 })
   }
 
+  try {
   const agent = await db.agent.findUnique({ where: { id: agentId } })
   if (!agent) {
     return NextResponse.json({ error: 'Agente não encontrado' }, { status: 404 })
@@ -55,4 +56,8 @@ export async function GET(req: NextRequest) {
     reputation,
     badge: { ...badge, grade: reputation.grade },
   })
+  } catch (error) {
+    console.error('agent/reputation API error:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
 }

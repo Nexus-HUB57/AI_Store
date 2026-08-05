@@ -76,6 +76,18 @@ jobs:
           fi
           echo ".next/standalone exists — $(du -sh .next/standalone | cut -f1)"
 
+      - name: Inject SESSION_SECRET into .htaccess
+        env:
+          HG_SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+        run: |
+          if [ -z "$HG_SESSION_SECRET" ]; then
+            echo "WARNING: SESSION_SECRET secret not set — adding placeholder that will prevent CGI startup"
+            echo "Create a SESSION_SECRET secret in GitHub repo settings (min 16 chars)"
+            exit 1
+          fi
+          sed -i "s/^# (configured during deploy.*)$/SetEnv SESSION_SECRET ${HG_SESSION_SECRET}/" hostgator/root-htaccess
+          echo "SESSION_SECRET injected into root-htaccess ($(echo $HG_SESSION_SECRET | wc -c) chars)"
+
       - name: Package deploy artifact
         run: |
           mkdir -p deploy/standalone
@@ -156,19 +168,19 @@ jobs:
           print('Credentials successfully written to GITHUB_ENV')
           PYEOF
 
-      - run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
-
       - name: Test FTP connection
         run: |
-          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
-            set ftp:ssl-force true;
-            set ssl:verify-certificate no;
-            set net:timeout 30;
-            pwd;
-            ls public_html/aistore-api.cgi 2>/dev/null || echo 'no CGI yet';
-            ls public_html/.htaccess 2>/dev/null || echo 'no .htaccess';
-            bye
-          "
+          python3 << 'PYEOF'
+          import ftplib, os
+          host, port, user, pwd = os.environ['HOST'], int(os.environ['PORT']), os.environ['USER'], os.environ['PASS']
+          ftps = ftplib.FTP_TLS()
+          ftps.connect(host, port, timeout=30)
+          ftps.login(user, pwd)
+          ftps.prot_p()
+          print(f'Connected to {host}:{port} as {user}')
+          ftps.quit()
+          print('FTP connection OK')
+          PYEOF
 
       - name: Deploy files via FTP
         env:
@@ -253,7 +265,6 @@ jobs:
             print(f'Tarball upload error: {e}', file=sys.stderr)
             sys.exit(1)
           PYEOF
-        continue-on-error: true
 
       - name: Run smoke test
         if: always()

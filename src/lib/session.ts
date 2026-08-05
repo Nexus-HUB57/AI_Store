@@ -7,7 +7,10 @@
 
 import { createHmac } from 'crypto'
 
-const SESSION_SECRET = process.env.SESSION_SECRET || 'nexus-aistore-session-secret-change-in-production'
+const SESSION_SECRET: string = process.env.SESSION_SECRET!
+if (!SESSION_SECRET || SESSION_SECRET.length < 16) {
+  throw new Error('SESSION_SECRET environment variable is required and must be at least 16 characters. Set it in .env or your hosting environment.')
+}
 
 function base64UrlEncode(data: string | Buffer): string {
   return Buffer.from(data).toString('base64url')

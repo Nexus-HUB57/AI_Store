@@ -76,14 +76,13 @@ else
     echo "  AVISO: DB não encontrado. O servidor iniciará sem dados."
 fi
 
-# ── 5. Copiar CGI files para public_html ──
-echo "[5/5] Configurando CGI..."
-SCRIPT_SOURCE="$STANDALONE_DIR/../aistore-api.cgi"
-if [ -f "$PUBLIC_HTML/aistore-api.cgi" ]; then
-    echo "  CGI já existe em $PUBLIC_HTML/aistore-api.cgi"
+# ── 5. Verificar CGI files em public_html ──
+echo "[5/5] Verificando CGI..."
+if [ -f "$PUBLIC_HTML/aistore/aistore-api.cgi" ] || [ -f "$PUBLIC_HTML/aistore/api.cgi" ]; then
+    echo "  CGI gateway encontrado em public_html/aistore/"
 else
-    echo "  AVISO: aistore-api.cgi não encontrado em public_html."
-    echo "  Upload manual necessário."
+    echo "  AVISO: aistore-api.cgi não encontrado em public_html/aistore/."
+    echo "  Execute o deploy via GitHub Actions ou faça upload manual."
 fi
 
 # ── 6. Matar processo antigo se existir ──
@@ -111,7 +110,13 @@ export HOSTNAME="127.0.0.1"
 export NODE_ENV="production"
 export NEXT_PUBLIC_BASE_PATH="/aistore"
 export DATABASE_URL="file:$DST_DB"
-export SESSION_SECRET="nexus-aistore-hg-prod-v1"
+# SESSION_SECRET must be set in the HostGator environment or passed here
+if [ -z "${SESSION_SECRET:-}" ] || [ ${#SESSION_SECRET} -lt 16 ]; then
+    echo "ERRO: SESSION_SECRET não definida ou menor que 16 chars."
+    echo "  Exporte antes de rodar este script:"
+    echo "  export SESSION_SECRET=\\$YOUR_SECRET"
+    exit 1
+fi
 export BAITCOIN_SERVER_URL="http://127.0.0.1:18445"
 
 nohup "$NODE_BIN" server.js > "$LOGFILE" 2>&1 &

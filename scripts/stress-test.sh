@@ -223,7 +223,7 @@ echo ""
 if [ $FAILED -eq 0 ]; then
   echo -e "  Status: ${GREEN}${BOLD}✅ ALL STRESS TESTS PASSED${NC}"
 else
-  local fail_pct=0
+  fail_pct=0
   if [ "$TOTAL_REQS" -gt 0 ]; then
     fail_pct=$(( (FAILED * 100) / TOTAL_REQS ))
   fi

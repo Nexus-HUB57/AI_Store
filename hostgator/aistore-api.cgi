@@ -41,10 +41,13 @@ def respond_json(data, status=200):
     sys.stdout.write('Status: %d\n' % status)
     sys.stdout.write('Content-Type: application/json\n')
     sys.stdout.write('Content-Length: %d\n' % len(body))
-    sys.stdout.write('Access-Control-Allow-Origin: *\n')
+    origin = os.environ.get('HTTP_ORIGIN', '')
+    allowed = ('https://www.mybait.org', 'https://mybait.org', 'http://localhost:3000')
+    cors_origin = origin if origin.rstrip('/') in allowed else 'https://www.mybait.org'
+    sys.stdout.write('Access-Control-Allow-Origin: %s\n' % cors_origin)
     sys.stdout.write('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\n')
     sys.stdout.write('Access-Control-Allow-Headers: Content-Type, Authorization, X-CSRF-Token, X-Moltbook-Identity\n')
-    sys.stdout.write('X-Powered-By: AI-Store-CGI\n')
+    sys.stdout.write('Access-Control-Allow-Credentials: true\n')
     sys.stdout.write('X-Frame-Options: DENY\n')
     sys.stdout.write('\n')
     sys.stdout.flush()
@@ -192,7 +195,11 @@ def start_server():
         env['NODE_ENV'] = 'production'
         env['NEXT_PUBLIC_BASE_PATH'] = '/aistore'
         env['DATABASE_URL'] = 'file:' + os.path.join(INSTALL_DIR, 'db', 'custom.db')
-        env['SESSION_SECRET'] = os.environ.get('SESSION_SECRET', 'nexus-aistore-hg-prod-v1')
+        secret = os.environ.get('SESSION_SECRET', '')
+        if not secret or len(secret) < 16:
+            log.error('SESSION_SECRET not set or too short — refusing to start')
+            return False
+        env['SESSION_SECRET'] = secret
         env['BAITCOIN_SERVER_URL'] = 'http://127.0.0.1:18445'
         env['PULSAR_INTERVAL_MS'] = '30000'
         
@@ -266,8 +273,11 @@ def proxy_request():
         for name, value in resp_headers:
             if name.lower() not in skip:
                 sys.stdout.write('%s: %s\n' % (name, value))
-        sys.stdout.write('X-Powered-By: AI-Store-CGI\n')
-        sys.stdout.write('Access-Control-Allow-Origin: *\n')
+        origin = os.environ.get('HTTP_ORIGIN', '')
+        allowed = ('https://www.mybait.org', 'https://mybait.org', 'http://localhost:3000')
+        cors_origin = origin if origin.rstrip('/') in allowed else 'https://www.mybait.org'
+        sys.stdout.write('Access-Control-Allow-Origin: %s\n' % cors_origin)
+        sys.stdout.write('Access-Control-Allow-Credentials: true\n')
         sys.stdout.write('\n')
         sys.stdout.flush()
         os.write(sys.stdout.fileno(), resp_body)
@@ -279,9 +289,13 @@ def main():
     try:
         if os.environ.get('REQUEST_METHOD') == 'OPTIONS':
             sys.stdout.write('Status: 204\nContent-Type: text/plain\n')
-            sys.stdout.write('Access-Control-Allow-Origin: *\n')
+            origin = os.environ.get('HTTP_ORIGIN', '')
+            allowed = ('https://www.mybait.org', 'https://mybait.org', 'http://localhost:3000')
+            cors_origin = origin if origin.rstrip('/') in allowed else 'https://www.mybait.org'
+            sys.stdout.write('Access-Control-Allow-Origin: %s\n' % cors_origin)
             sys.stdout.write('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\n')
             sys.stdout.write('Access-Control-Allow-Headers: Content-Type, Authorization, X-CSRF-Token, X-Moltbook-Identity\n')
+            sys.stdout.write('Access-Control-Allow-Credentials: true\n')
             sys.stdout.write('Access-Control-Max-Age: 86400\n\n')
             sys.stdout.flush()
             return
