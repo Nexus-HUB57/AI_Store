@@ -287,3 +287,77 @@ Stage Summary:
 - CGI auto-installs Node.js v20 on first request (~30s one-time setup)
 - Two systems share HostGator server: b'AI'tcoin (port 18445) + AI Store (port 18446)
 - Remaining: first request triggers setup, WASM execution, real on-chain payments
+
+---
+
+Task ID: 15
+Agent: Main Agent
+Task: Review synchronization and assess multi-developer safety for /aistore
+
+Work Log:
+
+- Checked git status: local 100% in sync with origin/main (no pending changes)
+- Checked all 45 commits: ALL authored by "Z User" — NO other developers have committed to AI_Store repo
+- Fetched remote: no new commits, no new branches, no divergence
+- Verified no uncommitted files, no stashed changes
+- Tested live endpoints:
+  - https://www.mybait.org/ → 200 OK (b'AI'tcoin landing page, working)
+  - https://www.mybait.org/aistore/ → **500 Internal Server Error** (CGI gateway failing)
+  - https://www.mybait.org/api/api/v1/status → **500 Internal Server Error** (b'AI'tcoin daemon possibly crashed)
+- Analyzed synchronization architecture:
+  - baitcoin-api.ts: calls localhost:18445 (server) or public URL (client fallback)
+  - wallet-sdk.ts: hybrid v2, 30s cached health check, real broadcast with sim fallback
+  - health endpoint: shows baitcoin_daemon: connected/offline, bait_sdk: v2-live/v2-fallback-simulated
+  - api.cgi: auto-installs Node.js, extracts codebase, boots standalone on port 18446
+  - .htaccess: AddHandler cgi-script + RewriteRule to api.cgi
+- Identified critical issues:
+
+  **ISSUE 1: setup_aistore.sh OVERWRITES root .htaccess**
+  - setup_aistore.sh writes `Options +ExecCGI` to root .htaccess (line 104-129)
+  - This caused 500 errors in prior testing (commit 7431f0b removed `Options +ExecCGI` from aistore .htaccess)
+  - root-htaccess file still has `Options +ExecCGI` (line 2)
+  - On HostGator shared hosting, `Options +ExecCGI` in root .htaccess causes 500
+  - IF another dev runs setup_aistore.sh via SSH, it will BREAK the root .htaccess
+
+  **ISSUE 2: b'AI'tcoin daemon returning 500**
+  - /api/api/v1/status returning HostGator 500 error page
+  - This means the b'AI'tcoin CGI gateway (api.cgi at root) may be broken
+  - Possible causes: process limit (25 max on shared hosting), daemon crash, .htaccess corruption
+  - Both services (b'AI'tcoin + AI Store) compete for the same 25-process limit
+
+  **ISSUE 3: AI Store /aistore returning 500**
+  - CGI gateway not functioning — could be Node.js not installed, codebase not extracted, or root .htaccess corruption
+  - The deploy workflow has NEVER been triggered (CREDENCIAIS_HOSTGATOR secret not set in AI_Store repo)
+  - Previous manual deploys may have been overwritten by root .htaccess changes
+
+  **ISSUE 4: CREDENCIAIS_HOSTGATOR secret not in AI_Store repo**
+  - The deploy workflow requires this secret to deploy via lftp
+  - Without it, no automated CI/CD deployment is possible
+  - Must be added manually via GitHub repo Settings → Secrets
+
+  **ISSUE 5: Process limit risk (HostGator shared)**
+  - HostGator shared hosting allows max 25 simultaneous processes per user
+  - b'AI'tcoin daemon (Python) + AI Store (Node.js) + other services risk hitting this limit
+  - When limit exceeded, ALL services return 500
+
+  **ISSUE 6: root-htaccess file has conflicting directives**
+  - root-htaccess has `Options +ExecCGI` which was proven to cause 500 on HostGator
+  - deploy.yml does NOT upload root-htaccess (only uploads aistore/.htaccess, api.cgi, setup_aistore.sh)
+  - BUT setup_aistore.sh writes a NEW root .htaccess with `Options +ExecCGI`
+
+  **MULTI-DEV SAFETY ASSESSMENT:**
+  - Currently NO other developers have committed to the AI_Store repo (all 45 commits by Z User)
+  - HOWEVER, the b'AI'tcoin repo shares the same HostGator server and root .htaccess
+  - If b'AI'tcoin devs modify root .htaccess or deploy their own setup scripts, it can break AI Store
+  - The setup_aistore.sh script is destructive — it overwrites root .htaccess without checking if b'AI'tcoin rules already exist
+  - Recommend: coordinate with b'AI'tcoin devs via shared .htaccess management
+
+Stage Summary:
+
+- NO other devs detected in AI_Store repo (all commits by Z User)
+- CRITICAL: Both /aistore and /api/api/v1/status returning 500 errors
+- Root cause likely: root .htaccess corruption from `Options +ExecCGI` or process limit exceeded
+- 6 issues identified, prioritized P0 (daemon 500, aistore 500) to P2 (process limit, secret)
+- Fixes needed BEFORE any deploy: remove `Options +ExecCGI` from root-htaccess, fix setup_aistore.sh, coordinate .htaccess with b'AI'tcoin team
+- Deploy workflow has NEVER run (missing secret) — manual setup was used previously
+- Recommendation: fix issues locally, coordinate with team, then trigger clean deploy

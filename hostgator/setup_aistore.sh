@@ -99,14 +99,20 @@ else
     log "WARNING: server.js not found. The build may not have standalone output."
 fi
 
-# ── Fix root .htaccess with CGI directives ──
-log "Setting up root .htaccess with CGI support..."
-cat > "$HOME/public_html/.htaccess" << 'ROOTHT'
-Options +ExecCGI
+# ── Patch root .htaccess — NON-DESTRUCTIVE ──
+log "Patching root .htaccess (non-destructive)..."
+ROOT_HT="$HOME/public_html/.htaccess"
+
+if [ ! -f "$ROOT_HT" ]; then
+    log "Creating root .htaccess..."
+    cat > "$ROOT_HT" << 'ROOTHT'
+# b'AI'tcoin + AI Store — HostGator Root .htaccess
+# CAUTION: Do NOT add 'Options +ExecCGI' — causes 500 on shared hosting
 AddHandler cgi-script .cgi
 
 <IfModule mod_rewrite.c>
   RewriteEngine On
+  # b'AI'tcoin API routing (catches /api/* EXCEPT /aistore/*)
   RewriteCond %{REQUEST_URI} !^/aistore
   RewriteRule ^api/(.*)$ /api.cgi/$1 [QSA,L,E=PATH_INFO:/$1]
 </IfModule>
@@ -127,7 +133,31 @@ AddHandler cgi-script .cgi
 
 ErrorDocument 404 /index.html
 ROOTHT
-log "Root .htaccess updated"
+else
+    # Non-destructive: only add what's missing, never remove existing rules
+    log "Root .htaccess exists — patching safely..."
+    cp "$ROOT_HT" "${ROOT_HT}.bak.$(date +%Y%m%d%H%M%S)"
+
+    # Remove 'Options +ExecCGI' if present (causes 500 on shared hosting)
+    if grep -q 'Options +ExecCGI' "$ROOT_HT" 2>/dev/null; then
+        sed -i '/Options +ExecCGI/d' "$ROOT_HT"
+        log "Removed 'Options +ExecCGI' (causes 500 on shared hosting)"
+    fi
+
+    # Ensure AddHandler cgi-script is present
+    if ! grep -q 'AddHandler cgi-script' "$ROOT_HT" 2>/dev/null; then
+        sed -i '1i AddHandler cgi-script .cgi' "$ROOT_HT"
+        log "Added 'AddHandler cgi-script .cgi'"
+    fi
+
+    # Ensure /aistore exclusion exists before b'AI'tcoin api.cgi rule
+    if grep -q 'RewriteRule.*api\.cgi' "$ROOT_HT" 2>/dev/null && ! grep -q '!^/aistore' "$ROOT_HT" 2>/dev/null; then
+        sed -i '/RewriteRule.*api\.cgi/i\  RewriteCond %{REQUEST_URI} !^/aistore' "$ROOT_HT"
+        log "Added /aistore exclusion to b'AI'tcoin API rule"
+    fi
+fi
+
+log "Root .htaccess patched safely"
 
 # ── Set permissions ──
 chmod +x "$HOME/public_html/aistore/api.cgi" 2>/dev/null || true

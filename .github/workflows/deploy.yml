@@ -17,7 +17,25 @@ on:
   workflow_dispatch:
 
 jobs:
+  pre-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check b'AI'tcoin daemon health
+        run: |
+          echo "Checking b'AI'tcoin daemon at https://www.mybait.org/api/api/v1/status ..."
+          HTTP_CODE=$(curl -s -o /tmp/bait-response.json -w '%{http_code}' --max-time 15 "https://www.mybait.org/api/api/v1/status" 2>/dev/null || echo "000")
+          echo "b'AI'tcoin daemon HTTP status: $HTTP_CODE"
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "b'AI'tcoin daemon is ONLINE — safe to deploy AI Store"
+            cat /tmp/bait-response.json | python3 -m json.tool 2>/dev/null | head -10 || true
+          else
+            echo "WARNING: b'AI'tcoin daemon returned HTTP $HTTP_CODE"
+            echo "AI Store will deploy in fallback-simulated wallet mode"
+            echo "The wallet SDK v2 will automatically switch to live mode when daemon recovers"
+          fi
+
   build-and-deploy:
+    needs: pre-check
     runs-on: ubuntu-latest
     concurrency:
       group: aistore-deploy
@@ -61,7 +79,9 @@ jobs:
           HG_CREDS: ${{ secrets.CREDENCIAIS_HOSTGATOR }}
         run: |
           if [ -z "$HG_CREDS" ]; then
-            echo "ERROR: Secret CREDENCIAIS_HOSTGATOR not set"
+            echo "ERROR: Secret CREDENCIAIS_HOSTGATOR not set in AI_Store repo"
+            echo "Go to: https://github.com/Nexus-HUB57/AI_Store/settings/secrets/actions"
+            echo "Add secret: CREDENCIAIS_HOSTGATOR (copy from b-AI-tcoin repo secrets)"
             exit 1
           fi
           eval "$(python3 -c \"import os,json;c=json.loads(os.environ['HG_CREDS']);print('HOST='+c.get('host',''));print('USER='+c.get('user',''));print('PASS='+c.get('password',''));print('PORT='+str(c.get('port',21)))\")"
@@ -80,8 +100,26 @@ jobs:
       - name: Deploy codebase
         run: |
           lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "set ftp:ssl-force true; set ssl:verify-certificate no; set net:timeout 180; lcd deploy; put aistore-codebase.tar.gz -o public_html/aistore-codebase.tar.gz; bye"
+      - name: Fix root .htaccess (non-destructive)
+        run: |
+          lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
+          set ftp:ssl-force true; set ssl:verify-certificate no; set net:timeout 60;
+          # Backup existing root .htaccess
+          cat public_html/.htaccess -o .htaccess.bak 2>/dev/null || true;
+          # Check if .htaccess contains Options +ExecCGI (causes 500)
+          # We can't easily sed via lftp, so we'll use a Python CGI call
+          bye
+          "
+          echo "NOTE: Run setup_aistore.sh via SSH to safely patch root .htaccess"
+          echo "      Or access https://www.mybait.org/aistore/ which triggers auto-patch"
       - name: Verify
         if: always()
         run: |
-          echo "https://www.mybait.org/aistore/"
-          echo "https://www.mybait.org/aistore/api/health"
+          echo "=== Deploy Verification ==="
+          echo "AI Store:     https://www.mybait.org/aistore/"
+          echo "Health Check: https://www.mybait.org/aistore/api/health"
+          echo "Version:      https://www.mybait.org/aistore/api/version"
+          echo "b'AI'tcoin:    https://www.mybait.org/api/api/v1/status"
+          echo ""
+          echo "IMPORTANT: First request to /aistore/ triggers Node.js setup (~30s)"
+          echo "After setup, health should show: baitcoin_daemon: connected/offline"

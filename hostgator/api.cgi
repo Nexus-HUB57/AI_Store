@@ -53,9 +53,35 @@ def is_server_running():
         os.kill(pid, 0)
         return True
     except: 
+        # Stale PID file — clean up
         try: os.unlink(PIDFILE)
         except: pass
         return False
+
+def kill_orphan_processes():
+    """Kill any leftover Node.js processes on our port to free up process slots.
+    HostGator shared hosting has a 25-process limit per user.
+    b'AI'tcoin uses port 18445, AI Store uses port 18446.
+    """
+    try:
+        import subprocess
+        # Find processes listening on our port
+        result = subprocess.run(
+            ['fuser', str(SERVER_PORT) + '/tcp'],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.stdout.strip():
+            pids = result.stdout.strip().split()
+            for pid in pids:
+                try:
+                    os.kill(int(pid), 15)  # SIGTERM
+                    log.info('Killed orphan process %s on port %d', pid, SERVER_PORT)
+                except ProcessLookupError:
+                    pass
+                except PermissionError:
+                    pass
+    except Exception as e:
+        log.warning('Could not check orphan processes: %s', e)
 
 def install_nodejs():
     """Download and install Node.js 20 LTS."""
@@ -139,6 +165,9 @@ def start_server():
     if is_server_running():
         log.info('Server already running')
         return True
+    
+    # Clean up any orphan processes on our port first
+    kill_orphan_processes()
     
     if not os.path.exists(NODE_BIN):
         if not install_nodejs():

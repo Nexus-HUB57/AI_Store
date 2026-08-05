@@ -1,5 +1,6 @@
 # Root .htaccess — HostGator
-Options +ExecCGI
+# CAUTION: Do NOT add 'Options +ExecCGI' here — causes 500 on shared hosting
+# CGI handler is already enabled server-wide for .cgi files
 AddHandler cgi-script .cgi
 
 <IfModule mod_rewrite.c>
