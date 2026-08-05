@@ -138,6 +138,7 @@ jobs:
 
       - name: Deploy CGI to root (where CGI handler works)
         run: |
+          ls -la deploy/aistore-api.cgi deploy/aistore-test.cgi
           lftp -u "$USER","$PASS" -p "$PORT" "$HOST" -e "
             set ftp:ssl-force true;
             set ssl:verify-certificate no;
@@ -145,11 +146,10 @@ jobs:
             set ftp:binary;
             lcd deploy;
             put aistore-api.cgi -o public_html/aistore-api.cgi;
-            chmod 755 public_html/aistore-api.cgi;
             put aistore-test.cgi -o public_html/aistore-test.cgi;
-            chmod 755 public_html/aistore-test.cgi;
-            echo 'CGI deployed:';
-            ls -la public_html/aistore-api.cgi public_html/aistore-test.cgi;
+            quote SITE CHMOD 755 public_html/aistore-api.cgi;
+            quote SITE CHMOD 755 public_html/aistore-test.cgi;
+            ls public_html/aistore-api.cgi public_html/aistore-test.cgi;
             bye
           "
 
@@ -191,8 +191,7 @@ jobs:
             rm -f public_html/.htaccess.bak.aistore 2>/dev/null;
             rename public_html/.htaccess public_html/.htaccess.bak.aistore 2>/dev/null;
             rename public_html/.htaccess.aistore-new public_html/.htaccess;
-            echo 'Root .htaccess deployed:';
-            cat public_html/.htaccess;
+            ls public_html/.htaccess;
             bye
           "
 
