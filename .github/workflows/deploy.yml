@@ -218,6 +218,8 @@ jobs:
           PYEOF
 
       - name: Deploy to HostGator
+        if: ${{ success() }}
+        continue-on-error: true
         env:
           HG_HOST: ${{ env.HOST }}
           HG_PORT: ${{ env.PORT }}
@@ -410,6 +412,31 @@ jobs:
                   except: pass
           PYEOF
 
+      - name: Upload tarball to GitHub Release
+        if: ${{ success() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v$(node -p "require('./package.json').version")"
+          echo "Tag: $TAG"
+          # Delete existing asset if present
+          ASSET_ID=$(curl -sL -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/Nexus-HUB57/AI_Store/releases/tags/$TAG" \
+            | python3 -c "import sys,json; assets=json.load(sys.stdin).get('assets',[]); print(assets[0]['id'] if assets else '')" 2>/dev/null || echo "")
+          if [ -n "$ASSET_ID" ]; then
+            curl -sL -X DELETE -H "Authorization: token $GH_TOKEN" \
+              "https://api.github.com/repos/Nexus-HUB57/AI_Store/releases/assets/$ASSET_ID" || true
+            echo "Deleted old asset $ASSET_ID"
+          fi
+          # Upload new tarball
+          curl -sL --data-binary "@deploy/aistore-codebase.tar.gz" \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Content-Type: application/octet-stream" \
+            "https://uploads.github.com/repos/Nexus-HUB57/AI_Store/releases/$TAG/assets?name=aistore-codebase.tar.gz&label=AI%20Store%20$TAG%20Tarball" \
+            | python3 -c "import sys,json; r=json.load(sys.stdin); print(f'Uploaded: {r.get(\"browser_download_url\", \"error\")}')"
+          echo "Tarball available at: https://github.com/Nexus-HUB57/AI_Store/releases/download/$TAG/aistore-codebase.tar.gz"
+
       - name: Run smoke test
         if: always()
         run: |
@@ -427,5 +454,5 @@ jobs:
           if [ "$HTTP_CODE" = "200" ]; then
             echo "DEPLOY SUCCESSFUL"
           else
-            echo "WARNING: HTTP $HTTP_CODE — Node.js startup may take 30-60s on cold start"
+            echo "WARNING: HTTP $HTTP_CODE — Run deploy-on-server.sh on HostGator"
           fi

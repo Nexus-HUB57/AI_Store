@@ -1,0 +1,12 @@
+# AI Store — HostGator
+# CGI handler inherited from root .htaccess (AddHandler cgi-script .cgi)
+# Do NOT add Options +ExecCGI here — causes 500 on shared hosting
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /aistore/
+  RewriteRule ^test\.cgi$ test.cgi [L]
+  # Point to the root-level CGI gateway
+  RewriteRule ^api/(.*)$ ../aistore-api.cgi/$1 [QSA,L,E=PATH_INFO:/$1]
+  RewriteRule ^$ ../aistore-api.cgi/ [QSA,L,E=PATH_INFO:/]
+</IfModule>

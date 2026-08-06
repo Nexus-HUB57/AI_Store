@@ -1,0 +1,32 @@
+# Root .htaccess — HostGator (AI Store + bAI'tcoin)
+# CGI is enabled server-wide for .cgi on HostGator shared hosting.
+# Do NOT add Options +ExecCGI here — causes 500.
+# Do NOT use ErrorDocument 404 — causes cascade 500 when CGI fails.
+
+AddHandler cgi-script .cgi
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # ── bAI'tcoin daemon (existing) ──
+  RewriteCond %{REQUEST_URI} !^/aistore
+  RewriteRule ^api/(.*)$ /api.cgi/$1 [QSA,L,E=PATH_INFO:/$1]
+
+  # ── AI Store: API requests → root-level CGI gateway ──
+  # SESSION_SECRET must be set via SetEnv or the CGI will refuse to start
+  # (configured during deploy to avoid committing secrets to the repo)
+  RewriteRule ^aistore/api/(.*)$ /aistore-api.cgi/$1 [QSA,L,E=PATH_INFO:/$1]
+  RewriteRule ^aistore/test\.cgi$ /aistore-test.cgi [L]
+
+  # ── AI Store: page requests (non-API) → CGI gateway ──
+  RewriteRule ^aistore/(.*)$ /aistore-api.cgi/$1 [QSA,L,E=PATH_INFO:/$1]
+</IfModule>
+
+<IfModule mod_headers.c>
+  Header set X-Frame-Options "DENY"
+  Header set X-Content-Type-Options "nosniff"
+</IfModule>
+
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/css application/javascript application/json
+</IfModule>
