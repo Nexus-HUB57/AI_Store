@@ -102,3 +102,30 @@ Stage Summary:
 - Commit 2096b73: session.ts dev fallback for CI builds
 - Commit 3cf3d67: SESSION_SECRET step non-blocking, DB push non-fatal
 - User MUST create GitHub Secret 'SESSION_SECRET' (min 16 chars) for production sessions to work
+
+---
+
+Task ID: 1
+Agent: main
+Task: Transição testnet → produção real (v1.0.0 mainnet)
+
+Work Log:
+
+- Full surgical scan of project state: 193 files, 1504 products in DB, 24 API routes
+- Version bump 0.8.1 → 1.0.0 across 7 locations (package.json, version route, health route, openapi spec, smoke-test, stress-test, footer)
+- Created src/lib/version.ts as single source of truth — eliminates version drift risk
+- Fixed hardcoded footer "v1.0.0-beta" → dynamic via NEXT_PUBLIC_APP_VERSION env var
+- Added BUILD_TIME and NEXT_PUBLIC_APP_VERSION injection in deploy.yml build step
+- Fixed .env local with SESSION_SECRET and NEXT_PUBLIC_BASE_PATH for dev
+- Validated: 0 TypeScript errors, production build passes, all 24 routes compile
+- Lint-staged passed (eslint + vitest related + prettier)
+- Committed and pushed to main (5f22c4d), deploy pipeline triggered
+
+Stage Summary:
+
+- v1.0.0 mainnet release committed and pushed
+- deploy.yml will inject SESSION_SECRET from GitHub Secrets + BUILD_TIME
+- BLOCKERS for user action:
+  1. Create GitHub Secret SESSION_SECRET (min 16 chars) if not yet done
+  2. Verify CREDENCIAIS_HOSTGATOR secret has correct FTP credentials
+  3. FTP connection from GitHub Actions to HostGator must be allowed (firewall)
