@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       reason:
-        description: 'Diagnostic reason'
+        description: 'Reason'
         required: false
-        default: 'Debug FTP connection'
+        default: 'Debug FTP'
 
 jobs:
   diagnose:
@@ -20,199 +20,129 @@ jobs:
           HG_CREDS: ${{ secrets.CREDENCIAIS_HOSTGATOR }}
         run: |
           pip install paramiko 2>/dev/null || true
-          exec > >(tee /tmp/diag-output.txt) 2>&1
-          python3 << 'PYEOF'
-          import os, sys, re, json, socket, ftplib
-          raw = os.environ.get('HG_CREDS', '').strip()
-          
-          out = []
-          def log(msg=''):
-              print(msg)
-              out.append(msg)
-          
-          log('=== Credential Analysis ===')
-          log(f'Secret length: {len(raw)} chars')
-          log(f'Lines: {len(raw.splitlines())}')
-          log(f'Starts with JSON: {raw.strip().startswith("{")}')
-          log(f'First 120 chars: {repr(raw[:120])}')
-          log('')
-          
-          if not raw:
-              log('ERROR: Secret is empty')
-              sys.exit(1)
-          
-          def clean_val(v):
-              if not v: return ""
-              v = re.sub(r'^(Host|Port|User|Pass|Password|Senha|Servidor|Usuario|Usuário|Porta|Login|Username):\s*', '', v, flags=re.I)
-              return v.strip().strip('"').strip("'")
-          
-          def parse_creds(raw):
-              try:
-                  c = json.loads(raw)
-                  return {
-                      'host': clean_val(str(c.get('host', c.get('hostname', c.get('servidor', ''))))),
-                      'user': clean_val(str(c.get('user', c.get('username', c.get('usuario', c.get('usuário', '')))))),
-                      'pwd': clean_val(str(c.get('password', c.get('pass', c.get('senha', ''))))),
-                      'port': clean_val(str(c.get('port', c.get('porta', '21'))))
-                  }
-              except Exception as e:
-                  log(f'JSON parse failed: {e}')
-          
-              kv = {}
-              for line in raw.splitlines():
-                  line = line.strip()
-                  if not line: continue
-                  for sep in [': ', ':', '= ']:
-                      if sep in line:
-                          k, v = line.split(sep, 1)
-                          kv[k.strip().lower()] = v.strip()
-                          break
-              
-              log(f'Parsed KV pairs: {list(kv.keys())}')
-              
-              mapping = {
-                  'host': ['host', 'hostname', 'servidor', 'ftp', 'server'],
-                  'user': ['user', 'username', 'usuário', 'usuario', 'login'],
-                  'pwd': ['password', 'pass', 'senha'],
-                  'port': ['port', 'porta']
-              }
-              result = {}
-              for key, aliases in mapping.items():
-                  for alias in aliases:
-                      if alias in kv:
-                          result[key] = clean_val(kv[alias])
-                          break
-              
-              if result.get('host') and result.get('user') and result.get('pwd'):
-                  if 'port' not in result: result['port'] = '21'
-                  return result
-              return None
-          
-          creds = parse_creds(raw)
-          if not creds:
-              log('CREDENTIAL PARSING FAILED')
-              sys.exit(1)
-          
-          host = creds['host']
-          port = int(re.sub(r'\D', '', str(creds['port'])) or '21')
-          user = creds['user']
-          pwd = creds['pwd']
-          log(f'Parsed: HOST={host} PORT={port} USER={user} PASS_LEN={len(pwd)}')
-          
-          # DNS
-          log('')
-          log('=== DNS Resolution ===')
-          try:
-              ips = socket.getaddrinfo(host, None)
-              for ip in ips[:5]:
-                  log(f'  {ip[4][0]} ({ip[1]})')
-          except Exception as e:
-              log(f'  DNS failed: {e}')
-          
-          # TCP ports
-          log('')
-          log('=== TCP Port Scan ===')
-          for test_port, label in [(21, 'FTP'), (22, 'SSH'), (2222, 'Alt SSH'), (990, 'FTPS')]:
-              try:
-                  s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                  s.settimeout(5)
-                  result = s.connect_ex((host, test_port))
-                  s.close()
-                  status = 'OPEN' if result == 0 else f'CLOSED/FILTERED (err={result})'
-                  log(f'  Port {test_port:5} ({label:14}): {status}')
-              except Exception as e:
-                  log(f'  Port {test_port:5} ({label:14}): ERROR {e}')
-          
-          # FTP tests
-          log('')
-          log('=== Connection Tests ===')
-          
-          # Plain FTP
-          log(f'1. Plain FTP {host}:{port}')
-          try:
-              ftp = ftplib.FTP()
-              ftp.connect(host, port, timeout=15)
-              log(f'   Connected: {ftp.getwelcome()[:80]}')
-              ftp.login(user, pwd)
-              log(f'   Login OK')
-              pwd_resp = ftp.pwd()
-              log(f'   PWD: {pwd_resp}')
-              ftp.quit()
-              log(f'   SUCCESS')
-          except Exception as e:
-              log(f'   FAILED: {type(e).__name__}: {e}')
-          
-          # FTP-TLS
-          log(f'2. FTP-TLS {host}:{port}')
-          try:
-              ftps = ftplib.FTP_TLS()
-              ftps.connect(host, port, timeout=15)
-              log(f'   Connected')
-              ftps.login(user, pwd)
-              log(f'   Login OK')
-              ftps.prot_p()
-              log(f'   TLS protection ON')
-              ftps.quit()
-              log(f'   SUCCESS')
-          except Exception as e:
-              log(f'   FAILED: {type(e).__name__}: {e}')
-          
-          # SFTP via paramiko
-          log(f'3. SFTP (paramiko) {host}:22')
-          try:
-              import paramiko
-              ssh = paramiko.SSHClient()
-              ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-              ssh.connect(host, port=22, username=user, password=pwd, timeout=15, banner_timeout=15)
-              log(f'   SSH connected')
-              sftp = ssh.open_sftp()
-              log(f'   SFTP opened')
-              files = sftp.listdir('.')
-              log(f'   Home dir: {files[:10]}')
-              sftp.close()
-              ssh.close()
-              log(f'   SUCCESS')
-          except ImportError:
-              log(f'   paramiko not installed')
-          except Exception as e:
-              log(f'   FAILED: {type(e).__name__}: {e}')
-          
-          # SFTP port 2222
-          log(f'4. SFTP (paramiko) {host}:2222')
-          try:
-              import paramiko
-              ssh = paramiko.SSHClient()
-              ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-              ssh.connect(host, port=2222, username=user, password=pwd, timeout=15, banner_timeout=15)
-              log(f'   SSH connected')
-              sftp = ssh.open_sftp()
-              log(f'   SFTP opened')
-              files = sftp.listdir('.')
-              log(f'   Home dir: {files[:10]}')
-              sftp.close()
-              ssh.close()
-              log(f'   SUCCESS')
-          except ImportError:
-              log(f'   paramiko not installed')
-          except Exception as e:
-              log(f'   FAILED: {type(e).__name__}: {e}')
-          
-          log('')
-          log('=== Diagnostic Complete ===')
-          PYEOF
+          python3 -c '
+import os,sys,re,socket,ftplib,json
 
-      - name: Upload results to Gist
+F="/tmp/diag.txt"
+R=[]
+def L(m=""):
+    R.append(m)
+    print(m)
+
+raw = os.environ.get("HG_CREDS","").strip()
+L(f"Secret length: {len(raw)}")
+L(f"Lines: {len(raw.splitlines())}")
+L(f"Starts with JSON: {raw.strip().startswith(chr(123))}")
+L(f"First 150: {repr(raw[:150])}")
+L("")
+
+if not raw:
+    L("ERROR: Secret is empty")
+    sys.exit(1)
+
+def cv(v):
+    if not v: return ""
+    v=re.sub(r"^(Host|Port|User|Pass|Password|Senha|Servidor|Usuario|Login|Username):\s*","",v,flags=re.I)
+    return v.strip().strip(chr(34)).strip(chr(39))
+
+try:
+    c=json.loads(raw)
+    host=cv(str(c.get("host",c.get("hostname",c.get("servidor","")))))
+    user=cv(str(c.get("user",c.get("username",c.get("usuario","")))))
+    pwd=cv(str(c.get("password",c.get("pass",c.get("senha","")))))
+    port=cv(str(c.get("port",c.get("porta","21"))))
+except:
+    kv={}
+    for line in raw.splitlines():
+        line=line.strip()
+        if not line: continue
+        for sep in [": ",":","= "]:
+            if sep in line:
+                k,v=line.split(sep,1)
+                kv[k.strip().lower()]=v.strip()
+                break
+    L(f"KV keys: {list(kv.keys())}")
+    m={"host":["host","hostname","servidor","ftp","server"],"user":["user","username","usuario","login"],"pwd":["password","pass","senha"],"port":["port","porta"]}
+    r={}
+    for key,aliases in m.items():
+        for a in aliases:
+            if a in kv:
+                r[key]=cv(kv[a])
+                break
+    host=r.get("host","")
+    user=r.get("user","")
+    pwd=r.get("pwd","")
+    port=r.get("port","21")
+
+port=int(re.sub(r"\D","",str(port)) or "21")
+
+if not host or not user or not pwd:
+    L(f"PARSING FAILED: host={bool(host)} user={bool(user)} pwd={bool(pwd)}")
+    sys.exit(1)
+
+L(f"Parsed: HOST={host} PORT={port} USER={user} PASS_LEN={len(pwd)}")
+
+L("")
+L("=== DNS ===")
+try:
+    ips=socket.getaddrinfo(host,None)
+    for ip in ips[:5]: L(f"  {ip[4][0]}")
+except Exception as e: L(f"  {e}")
+
+L("")
+L("=== TCP Ports ===")
+for tp,lb in [(21,"FTP"),(22,"SSH"),(2222,"Alt SSH"),(990,"FTPS")]:
+    try:
+        s=socket.socket();s.settimeout(5)
+        r=s.connect_ex((host,tp));s.close()
+        L(f"  {tp:5} ({lb:14}): {\"OPEN\" if r==0 else f\"CLOSED/{r}\"}")
+    except Exception as e: L(f"  {tp:5} ({lb:14}): {e}")
+
+L("")
+L("=== FTP Tests ===")
+
+L(f"1. Plain FTP {host}:{port}")
+try:
+    ftp=ftplib.FTP();ftp.connect(host,port,timeout=15)
+    L(f"   Connected: {ftp.getwelcome()[:80]}")
+    ftp.login(user,pwd)
+    L(f"   Login OK, PWD={ftp.pwd()}")
+    ftp.quit();L(f"   SUCCESS")
+except Exception as e: L(f"   FAILED: {type(e).__name__}: {e}")
+
+L(f"2. FTP-TLS {host}:{port}")
+try:
+    ftps=ftplib.FTP_TLS();ftps.connect(host,port,timeout=15)
+    L(f"   Connected")
+    ftps.login(user,pwd);L(f"   Login OK")
+    ftps.prot_p();L(f"   TLS ON")
+    ftps.quit();L(f"   SUCCESS")
+except Exception as e: L(f"   FAILED: {type(e).__name__}: {e}")
+
+for sp in [22,2222]:
+    L(f"3. SFTP {host}:{sp}")
+    try:
+        import paramiko
+        ssh=paramiko.SSHClient();ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect(host,port=sp,username=user,password=pwd,timeout=15,banner_timeout=15)
+        L(f"   SSH OK")
+        sftp=ssh.open_sftp()
+        L(f"   SFTP OK, files={sftp.listdir(chr(46))[:10]}")
+        sftp.close();ssh.close();L(f"   SUCCESS")
+    except ImportError: L(f"   paramiko N/A")
+    except Exception as e: L(f"   FAILED: {type(e).__name__}: {e}")
+
+with open(F,"w") as f: f.write(chr(10).join(R))
+' 2>&1
+
+      - name: Output diagnostic results
         if: always()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if [ ! -f /tmp/diag-output.txt ]; then
-            echo 'No diagnostic output file'
-            exit 0
-          fi
-          CONTENT=$(cat /tmp/diag-output.txt | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')
-          GIST_DATA=$(printf '{"description":"FTP Diagnostic %s","public":false,"files":{"results.txt":{"content":%s}}}' "$(date)" "$CONTENT")
-          curl -sL -X POST -H "Authorization: token $GH_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "$GIST_DATA" \
-            'https://api.github.com/gists' | python3 -c 'import sys,json; r=json.load(sys.stdin); print(f"Gist: {r.get(\"html_url\", r.get(\"message\", \"error\"))}")'
+        run: cat /tmp/diag.txt 2>/dev/null || echo 'No results file'
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ftp-diag
+          path: /tmp/diag.txt
+          retention-days: 1
