@@ -113,7 +113,7 @@ def main():
             s.settimeout(5)
             r = s.connect_ex((host, tp))
             s.close()
-            L(f"  {tp:5} ({lb:14}): {\"OPEN\" if r == 0 else f\"CLOSED/{r}\"}")
+            L(f"  {tp:5} ({lb:14}): {'OPEN' if r == 0 else f'CLOSED/{r}'}")
         except Exception as e:
             L(f"  {tp:5} ({lb:14}): {e}")
 
