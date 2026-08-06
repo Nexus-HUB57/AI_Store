@@ -5,6 +5,8 @@
 
 AddHandler cgi-script .cgi
 
+# __AISTORE_SESSION_SECRET_PLACEHOLDER__
+
 <IfModule mod_rewrite.c>
   RewriteEngine On
 
@@ -13,8 +15,6 @@ AddHandler cgi-script .cgi
   RewriteRule ^api/(.*)$ /api.cgi/$1 [QSA,L,E=PATH_INFO:/$1]
 
   # ── AI Store: API requests → root-level CGI gateway ──
-  # SESSION_SECRET must be set via SetEnv or the CGI will refuse to start
-  # (configured during deploy to avoid committing secrets to the repo)
   RewriteRule ^aistore/api/(.*)$ /aistore-api.cgi/$1 [QSA,L,E=PATH_INFO:/$1]
   RewriteRule ^aistore/test\.cgi$ /aistore-test.cgi [L]
 

@@ -86,6 +86,7 @@ jobs:
           NODE_ENV: production
           NEXT_PUBLIC_BASE_PATH: /aistore
           NEXT_PUBLIC_BASE_URL: https://www.mybait.org/aistore
+          NEXT_PUBLIC_APP_VERSION: "1.0.0"
         run: npx next build
 
       - name: Check Standalone output
@@ -104,8 +105,14 @@ jobs:
             echo "WARNING: SESSION_SECRET secret not set in GitHub — sessions will NOT work"
             HG_SESSION_SECRET="__SET_SESSION_SECRET_IN_GITHUB_SECRETS__"
           fi
-          sed -i "s/^# (configured during deploy.*)$/SetEnv SESSION_SECRET ${HG_SESSION_SECRET}/" hostgator/root-htaccess
-          echo "SESSION_SECRET injected into root-htaccess ($(echo $HG_SESSION_SECRET | wc -c) chars)"
+          # Replace placeholder OUTSIDE <IfModule> blocks (SetEnv inside IfModule mod_rewrite.c causes Apache 500)
+          sed -i "s/^# __AISTORE_SESSION_SECRET_PLACEHOLDER__$/SetEnv SESSION_SECRET ${HG_SESSION_SECRET}/" hostgator/root-htaccess
+          if grep -q '^SetEnv SESSION_SECRET' hostgator/root-htaccess; then
+            echo "SESSION_SECRET injected into root-htaccess ($(echo $HG_SESSION_SECRET | wc -c) chars)"
+          else
+            echo "WARNING: SESSION_SECRET placeholder not found — appending"
+            sed -i "/^AddHandler cgi-script/a\\SetEnv SESSION_SECRET ${HG_SESSION_SECRET}" hostgator/root-htaccess
+          fi
 
       - name: Package deploy artifact
         run: |
@@ -388,8 +395,12 @@ jobs:
                   ensure_dir_ftp(conn, 'public_html/aistore')
                   for local, remote in files:
                       upload_file_ftp(conn, local, remote)
+                      try: conn.voidcmd(f'SITE CHMOD 755 {remote}')
+                      except: pass
                   for local, remote in config_files:
                       upload_file_ftp(conn, local, remote)
+                      try: conn.voidcmd(f'SITE CHMOD 644 {remote}')
+                      except: pass
                   with open(root_htaccess[0], 'rb') as f:
                       conn.storbinary(f'STOR {root_htaccess[1]}.aistore-new', f)
                   try:
