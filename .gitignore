@@ -65,3 +65,5 @@ download/
 examples/
 tests/*.sh
 baitcoin-repo/
+deploy/aistore-codebase.tar.gz
+deploy/standalone/
