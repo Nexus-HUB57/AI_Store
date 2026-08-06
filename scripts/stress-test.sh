@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ─── AI Store Nexus v0.8.1 — Stress Test Suite ───
+# ─── AI Store Nexus v1.0.0 — Stress Test Suite ───
 # Simulates concurrent load to validate stability under pressure.
 # Usage: bash scripts/stress-test.sh [BASE_URL] [CONCURRENT] [TOTAL_REQUESTS]
 #   Default: bash scripts/stress-test.sh http://localhost:3000 10 100
@@ -145,7 +145,7 @@ stress_endpoint() {
 echo ""
 echo -e "${BOLD}══════════════════════════════════════════════════════════${NC}"
 echo -e "${BOLD}  AI Store Nexus — Stress Test Suite v1.0${NC}"
-echo -e "${BOLD}  Version: 0.8.1${NC}"
+echo -e "${BOLD}  Version: 1.0.0${NC}"
 echo -e "  Target:    ${CYAN}$BASE_URL${NC}"
 echo -e "  Config:    ${CONCURRENT} concurrent x ${TOTAL} reqs/worker = $((CONCURRENT * TOTAL)) total"
 echo -e "  Date:      $(date -u '+%Y-%m-%d %H:%M:%S UTC')"

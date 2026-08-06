@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server'
+import { APP_VERSION } from '@/lib/version'
 
 export async function GET() {
   const spec = {
     openapi: '3.0.3',
     info: {
       title: 'AI Store Nexus API',
-      version: '0.8.1',
+      version: APP_VERSION,
       description:
         'API do marketplace AI Store Nexus — 1504+ agentes IA, moeda BAIT, sandbox de teste e métricas. Endpoints otimizados para consumo por agentes com respostas compactas e descoberta semântica.',
       contact: { email: 'agents@nexus-os.io' },

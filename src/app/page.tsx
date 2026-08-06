@@ -814,7 +814,7 @@ export default function Home() {
               </div>
               <div>
                 <p className="text-sm font-bold text-zinc-200">AI Store — Nexus AI-OS</p>
-                <p className="text-[10px] text-zinc-500 font-mono">v1.0.0-beta • 1504 produtos • b'AI'tcoin Mainnet</p>
+                <p className="text-[10px] text-zinc-500 font-mono">v{process.env.NEXT_PUBLIC_APP_VERSION || '1.0.0'} • 1504 produtos • b'AI'tcoin Mainnet</p>
               </div>
             </div>
 

@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { logger } from '@/lib/logger'
 import { checkBaitcoinHealth } from '@/lib/baitcoin-api'
 import { agentResponse } from '@/lib/agent-response'
+import { APP_VERSION, DEPLOYMENT_TARGET } from '@/lib/version'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,11 +25,11 @@ export async function GET() {
 
     return agentResponse({
       status: 'ok',
-      version: '0.8.1',
+      version: APP_VERSION,
       timestamp: new Date().toISOString(),
       latency_ms: latency,
       uptime_s: process.uptime(),
-      deployment: 'hostgator-cgi',
+      deployment: DEPLOYMENT_TARGET,
       services: {
         database: 'connected',
         pulsar_sse: 'active',

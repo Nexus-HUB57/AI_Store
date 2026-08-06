@@ -1,15 +1,16 @@
 import { NextResponse } from 'next/server'
 import { agentResponse } from '@/lib/agent-response'
+import { APP_VERSION, APP_NAME, DEPLOYMENT_TARGET, PROTOCOL_VERSION, BAIT_SDK_VERSION } from '@/lib/version'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
   return agentResponse({
-    name: 'AI Store Nexus AI-OS',
-    version: '0.8.1',
-    deployment: 'hostgator-cgi',
-    bait_sdk: 'v2-hybrid',
-    protocol: 'A2A-RPC/v1',
+    name: APP_NAME,
+    version: APP_VERSION,
+    deployment: DEPLOYMENT_TARGET,
+    bait_sdk: BAIT_SDK_VERSION,
+    protocol: PROTOCOL_VERSION,
     node: process.version,
     platform: process.platform,
     uptime_s: Math.floor(process.uptime()),
