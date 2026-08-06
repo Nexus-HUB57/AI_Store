@@ -21,11 +21,12 @@ jobs:
       - name: Run diagnostic
         env:
           HG_CREDS: ${{ secrets.CREDENCIAIS_HOSTGATOR }}
-        run: python3 scripts/ftp-diag.py
-
-      - name: Output results
-        if: always()
-        run: cat /tmp/diag.txt 2>/dev/null || echo 'No results file'
+        run: |
+          python3 scripts/ftp-diag.py 2>&1 || true
+          echo "---FILE CHECK---"
+          ls -la /tmp/diag.txt 2>&1 || echo 'File not found'
+          echo "---FILE CONTENTS---"
+          cat /tmp/diag.txt 2>&1 || echo 'Cannot read file'
 
       - name: Upload artifact
         if: always()
