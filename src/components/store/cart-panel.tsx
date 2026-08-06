@@ -218,14 +218,23 @@ export function CartPanel() {
               />
             </div>
           ) : items.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center py-16 gap-3 text-center">
+            <div className="flex-1 flex flex-col items-center justify-center py-16 gap-4 text-center">
               <div className="w-16 h-16 rounded-2xl bg-zinc-900 flex items-center justify-center">
                 <ShoppingCart className="w-8 h-8 text-zinc-600" />
               </div>
-              <p className="text-sm text-zinc-400">Carrinho vazio</p>
-              <p className="text-xs text-zinc-600 max-w-[200px]">
-                Adicione agentes e pacotes do ecossistema Nexus AI-OS
-              </p>
+              <div>
+                <p className="text-sm font-medium text-zinc-300">Carrinho vazio</p>
+                <p className="text-xs text-zinc-500 mt-1 max-w-[220px]">
+                  Explore o catálogo e adicione agentes, skills e pacotes do ecossistema
+                </p>
+              </div>
+              <button
+                onClick={() => setCartOpen(false)}
+                className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors flex items-center gap-1.5"
+              >
+                Explorar produtos
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
             </div>
           ) : (
             <>

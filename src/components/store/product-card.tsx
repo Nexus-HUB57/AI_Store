@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Download, Star, Activity, ShoppingCart, Plus, Sparkles } from 'lucide-react'
+import { Download, Star, Activity, ShoppingCart, Plus, Sparkles, Eye } from 'lucide-react'
 import { useCartStore } from '@/lib/cart-store'
 
 interface Product {
@@ -72,8 +72,8 @@ function PulsarBar({ value, productId, liveUpdates }: { value: number; productId
   )
 }
 
-export function ProductCard({ product, onClick, discountBadge, index }: {
-  product: Product; onClick: () => void; discountBadge?: { label: string; color: string } | null; index: number
+export function ProductCard({ product, onClick, discountBadge, index, liveUpdates = {} }: {
+  product: Product; onClick: () => void; discountBadge?: { label: string; color: string } | null; index: number; liveUpdates?: Record<string, number>
 }) {
   const addItem = useCartStore((s) => s.addItem)
   const items = useCartStore((s) => s.items)
@@ -88,7 +88,7 @@ export function ProductCard({ product, onClick, discountBadge, index }: {
 
   return (
     <motion.div variants={cardVariants} custom={index} initial="hidden" animate="visible" whileHover={{ y: -4, transition: { duration: 0.2 } }} whileTap={{ scale: 0.985 }} className="cursor-pointer" onClick={onClick}>
-      <Card className="group card-glow-hover border-white/[0.07] bg-gradient-to-br from-white/[0.03] to-transparent hover:border-emerald-500/20 hover:from-white/[0.06] transition-all duration-300 overflow-hidden h-full">
+      <Card className="group card-glow-hover border-white/[0.07] bg-gradient-to-br from-white/[0.03] to-transparent hover:border-emerald-500/20 hover:from-white/[0.06] transition-all duration-300 overflow-hidden h-full relative">
         <CardContent className="p-4 flex flex-col h-full">
           <div className="flex items-start justify-between gap-3 mb-3">
             <div className="flex items-center gap-3 min-w-0">
@@ -109,7 +109,7 @@ export function ProductCard({ product, onClick, discountBadge, index }: {
           <p className="text-xs text-zinc-400 line-clamp-2 mb-3 leading-relaxed min-h-[2.5rem]">{product.coreBusiness}</p>
           <Badge variant="outline" className={`text-[10px] mb-3 border self-start ${SEGMENT_COLORS[product.segmento] || ''}`}>{product.segmento.replace(/_/g, ' ')}</Badge>
           <div className="space-y-2.5 mt-auto">
-            <PulsarBar value={product.pulsarEnergy} productId={product.id} liveUpdates={{}} />
+            <PulsarBar value={product.pulsarEnergy} productId={product.id} liveUpdates={liveUpdates} />
             <div className="flex items-center justify-between text-[11px] text-zinc-500">
               <span className="flex items-center gap-1"><Download className="w-3 h-3" /> {formatNumber(product.downloads)}</span>
               <span className="flex items-center gap-1"><Star className="w-3 h-3" /> {product.rating.toFixed(1)}</span>
@@ -133,6 +133,13 @@ export function ProductCard({ product, onClick, discountBadge, index }: {
                 <motion.span animate={inCart ? { scale: [1, 1.3, 1] } : {}} transition={{ duration: 0.3 }}>{inCart ? <ShoppingCart className="w-3 h-3 mr-1" /> : <Plus className="w-3 h-3 mr-1" />}</motion.span>
                 {inCart ? 'No Carrinho' : 'Adicionar'}
               </Button>
+            </div>
+          </div>
+          {/* Hover overlay - Ver detalhes */}
+          <div className="absolute inset-0 bg-zinc-950/60 backdrop-blur-[2px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-xl pointer-events-none z-10">
+            <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500/20 border border-emerald-500/30">
+              <Eye className="w-4 h-4 text-emerald-400" />
+              <span className="text-xs font-medium text-emerald-300">Ver detalhes</span>
             </div>
           </div>
         </CardContent>

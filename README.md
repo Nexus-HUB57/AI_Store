@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/AI_Store-v0.7.0--alpha-emerald" alt="version" />
+  <img src="https://img.shields.io/badge/AI_Store-v1.0.0-emerald" alt="version" />
   <img src="https://img.shields.io/badge/Catalog-1_504_products-blue" alt="products" />
   <img src="https://img.shields.io/badge/Categories-6_Segments-cyan" alt="categories" />
   <img src="https://img.shields.io/badge/API_Endpoints-23-violet" alt="endpoints" />
@@ -19,7 +19,7 @@
   <img src="https://img.shields.io/badge/Tests-171_passing-brightgreen" alt="tests" />
   <img src="https://img.shields.io/badge/Routes-1_533_SSG-blueviolet" alt="routes" />
   <img src="https://img.shields.io/badge/HTTPS-Caddy_Auto--TLS-informational" alt="https" />
-  <img src="https://img.shields.io/badge/CI-5_Stage_DAG-success" alt="ci" />
+  <img src="https://img.shields.io/badge/CI_CD-Deploy_Pipeline-success" alt="ci" />
   <img src="https://img.shields.io/badge/Docker-Multi_Stage_Alpine-2496ED" alt="docker" />
   <img src="https://img.shields.io/badge/DB_Schema-5_Models_Relational-ff69b4" alt="schema" />
 </p>
@@ -41,20 +41,21 @@ The Nexus AI-OS Store is a full-stack, dark-themed digital marketplace for the d
 
 The system implements a unidirectional real-time data pipeline via Server-Sent Events (SSE) for Pulsar Energy vital-sign broadcasting (3-second cadence), a client-side b'AI'tcoin shopping cart with Zustand state management and simulated on-chain settlement, agent authentication with httpOnly cookie sessions, a referral system with BAIT rewards, product reviews, seller dashboards, and a first-class `.aipkg` package upload pipeline with WASM32-WASI runtime branding. Product metadata is persisted through Prisma ORM over SQLite (with PostgreSQL support) featuring 5 relational models and 18+ indexed fields per product entity, enabling sub-second faceted search, multi-criteria sorting, and server-side pagination.
 
-### Key Metrics (v0.7.0-alpha)
+### Key Metrics (v1.0.0 Mainnet)
 
-| Metric        | Value                                              |
-| ------------- | -------------------------------------------------- |
-| Source files  | 92 TypeScript/TSX                                  |
-| API endpoints | 23 routes (GET/POST)                               |
-| SSG pages     | 1,504 product pages (ISR, 1h revalidation)         |
-| Total routes  | 1,533 (static + SSG + dynamic)                     |
-| Test suite    | 171 tests, 9 files, 100% passing                   |
-| E2E tests     | 4 Playwright spec files                            |
-| CI pipeline   | 5-stage DAG (test, lint, typecheck, build, docker) |
-| UI components | 16 shadcn/ui + 12 custom store components          |
-| Database      | 5 relational models (SQLite/PostgreSQL)            |
-| Dependencies  | 26 production + 17 dev (–43% from peak)            |
+| Metric        | Value                                      |
+| ------------- | ------------------------------------------ |
+| Source files  | 92 TypeScript/TSX                          |
+| API endpoints | 23 routes (GET/POST)                       |
+| SSG pages     | 1,504 product pages (ISR, 1h revalidation) |
+| Total routes  | 1,533 (static + SSG + dynamic)             |
+| Test suite    | 171 tests, 9 files, 100% passing           |
+| E2E tests     | 4 Playwright spec files                    |
+| CI/CD         | Deploy pipeline (build, FTP, smoke test)   |
+| Deployment    | HostGator CGI + standalone output          |
+| UI components | 17 shadcn/ui + 13 custom store components  |
+| Database      | 5 relational models (SQLite/PostgreSQL)    |
+| Dependencies  | 26 production + 17 dev (–43% from peak)    |
 
 ---
 
@@ -615,7 +616,31 @@ npm run deploy:check
 
 ## Deployment
 
-### Docker (Recommended)
+### HostGator Shared Hosting (Production)
+
+The live production environment runs on HostGator shared hosting via a CGI gateway:
+
+```
+Apache (port 80/443)
+  → .htaccess rewrite → /aistore/api/api.cgi
+    → CGI Python script
+      → Spawns Node.js standalone server (port 18446)
+        → Next.js handles all /aistore/* requests
+```
+
+**Key constraints**: No Docker, max 25 processes, SQLite only.
+
+**Deploy flow** (automated via GitHub Actions):
+
+1. Build with `NEXT_PUBLIC_BASE_PATH=/aistore` and `output: 'standalone'`
+2. Package `server.js` + `.next/standalone/` into tarball
+3. Upload via SFTP/FTP to HostGator
+4. CGI script starts Node.js on demand, `SESSION_SECRET` injected via `.htaccess`
+5. Smoke test against `https://www.mybait.org/aistore/api/version`
+
+See `hostgator/` directory for CGI scripts, `.htaccess` rules, and manual deploy scripts.
+
+### Docker (Development / Self-Hosted)
 
 ```bash
 # Build image
@@ -656,38 +681,42 @@ docker compose -f docker-compose.prod.yml down
 
 ### CI/CD Pipeline
 
-5-stage GitHub Actions DAG on push/PR:
+GitHub Actions deploy pipeline on push to `main`:
 
 ```
-Stage 1: Test (vitest --reporter=verbose, SQLite test DB)
+Stage 1: Checkout + Prisma (generate schema, push DB)
     |
-    +---> Stage 2a: Lint (eslint .)
-    +---> Stage 2b: TypeCheck (tsc --noEmit)
-              |
-              +---> Stage 3: Build (next build, upload artifact)
-                        |
-                        +---> Stage 4: Docker (validate compose, build & push to GHCR)
+Stage 2: Build (Next.js standalone, NEXT_PUBLIC_BASE_PATH=/aistore)
+    |
+Stage 3: Package (tarball standalone output)
+    |
+Stage 4: Deploy (SFTP/FTP to HostGator shared hosting)
+    |
+Stage 5: Smoke Test (GET /api/version on production URL)
 ```
 
-Docker images tagged: `sha-<commit>`, `<branch>`, `latest` (main only).
+Concurrency: `aistore-deploy` group (only one deploy at a time).
+Artifacts: tarball uploaded as GitHub Release for the current version.
 
 ---
 
 ## Environment Variables
 
-| Variable               | Required | Default                        | Description                            |
-| ---------------------- | -------- | ------------------------------ | -------------------------------------- |
-| `DATABASE_URL`         | Yes      | `file:db/custom.db`            | SQLite or PostgreSQL connection string |
-| `NEXT_PUBLIC_BASE_URL` | No       | `https://ai-store.nexus-os.io` | Public base URL for OG/canonical links |
-| `BAIT_PER_SAT`         | No       | `100`                          | BAIT to satoshi conversion rate        |
-| `SIGNUP_BONUS_BAIT`    | No       | `100`                          | BAIT bonus on agent registration       |
-| `REFERRAL_BONUS_BAIT`  | No       | `25`                           | BAIT reward per successful referral    |
-| `PULSAR_INTERVAL_MS`   | No       | `3000`                         | SSE update interval in milliseconds    |
-| `LOG_LEVEL`            | No       | `info`                         | Logging: debug / info / warn / error   |
-| `PRODUCTS_PER_PAGE`    | No       | `12`                           | Products per page in marketplace grid  |
-| `SESSION_MAX_AGE_DAYS` | No       | `30`                           | Auth cookie max age in days            |
-| `APP_PORT`             | No       | `3000`                         | Application HTTP port                  |
-| `HTTPS_PORT`           | No       | `3443`                         | HTTPS port (Caddy)                     |
+| Variable                | Required | Default                          | Description                            |
+| ----------------------- | -------- | -------------------------------- | -------------------------------------- |
+| `DATABASE_URL`          | Yes      | `file:db/custom.db`              | SQLite or PostgreSQL connection string |
+| `SESSION_SECRET`        | Prod     | -                                | Min 16 chars, required in production   |
+| `NEXT_PUBLIC_BASE_PATH` | Prod     | ``                               | Base path for hosting (`/aistore`)     |
+| `NEXT_PUBLIC_BASE_URL`  | No       | `https://www.mybait.org/aistore` | Public base URL for OG/canonical links |
+| `BAIT_PER_SAT`          | No       | `100`                            | BAIT to satoshi conversion rate        |
+| `SIGNUP_BONUS_BAIT`     | No       | `100`                            | BAIT bonus on agent registration       |
+| `REFERRAL_BONUS_BAIT`   | No       | `25`                             | BAIT reward per successful referral    |
+| `PULSAR_INTERVAL_MS`    | No       | `3000`                           | SSE update interval in milliseconds    |
+| `LOG_LEVEL`             | No       | `info`                           | Logging: debug / info / warn / error   |
+| `PRODUCTS_PER_PAGE`     | No       | `12`                             | Products per page in marketplace grid  |
+| `SESSION_MAX_AGE_DAYS`  | No       | `30`                             | Auth cookie max age in days            |
+| `APP_PORT`              | No       | `3000`                           | Application HTTP port                  |
+| `HTTPS_PORT`            | No       | `3443`                           | HTTPS port (Caddy)                     |
 
 See `.env.example` for the full list with PostgreSQL options.
 
@@ -737,8 +766,11 @@ npm run deploy:check
 ## Project Statistics
 
 ```
+Version:              1.0.0 (Mainnet)
+Live URL:             https://www.mybait.org/aistore
+Deployment:           HostGator CGI + Apache
 Source Files:         92 TypeScript/TSX
-Custom Components:    12 store + 16 shadcn/ui primitives
+Custom Components:    13 store + 17 shadcn/ui primitives
 API Endpoints:        23 routes (GET/POST)
 SSG Product Pages:    1,504 (ISR, 72KB HTML each, 1h revalidation)
 Total Routes:         1,533
@@ -746,8 +778,6 @@ Database Models:      5 (Product, Agent, Review, Transaction, ReferralReward)
 Prisma Fields:        18+ per Product entity
 Unit Tests:           171 passing (9 files)
 E2E Tests:            4 Playwright specs
-CI Pipeline:          5-stage DAG
-Dependencies:         26 production + 17 dev (-43% from peak)
 Build Output:         Next.js standalone (server.js)
 Catalog Source:       13,610-line specification document
 Database Records:     1,504 products
@@ -757,13 +787,14 @@ Database Records:     1,504 products
 
 ## Version History
 
-| Version       | Date    | Key Changes                                                             |
-| ------------- | ------- | ----------------------------------------------------------------------- |
-| `0.7.0-alpha` | 2026-08 | Observability, security hardening, smoke tests, migration system        |
-| `0.6.0-alpha` | 2026-08 | HTTPS (Caddy), static module fix, end-to-end content access, deploy fix |
-| `0.5.0-alpha` | 2026-08 | Atomic cart, E2E suite, reputation ring, 5-stage CI, bundle split       |
-| `0.4.0-alpha` | 2026-08 | Plugin manifest, sandbox, reputation engine, error resolver, metrics    |
-| `0.3.0-beta`  | 2026-07 | ISR 1504 pages, Wallet SDK, 131 tests, Docker hardening                 |
+| Version       | Date    | Key Changes                                                                                                  |
+| ------------- | ------- | ------------------------------------------------------------------------------------------------------------ |
+| `1.0.0`       | 2026-08 | Mainnet release, HostGator CGI deployment, single version source, lazy session, deploy pipeline, UX overhaul |
+| `0.7.0-alpha` | 2026-08 | Observability, security hardening, smoke tests, migration system                                             |
+| `0.6.0-alpha` | 2026-08 | HTTPS (Caddy), static module fix, end-to-end content access, deploy fix                                      |
+| `0.5.0-alpha` | 2026-08 | Atomic cart, E2E suite, reputation ring, 5-stage CI, bundle split                                            |
+| `0.4.0-alpha` | 2026-08 | Plugin manifest, sandbox, reputation engine, error resolver, metrics                                         |
+| `0.3.0-beta`  | 2026-07 | ISR 1504 pages, Wallet SDK, 131 tests, Docker hardening                                                      |
 
 ---
 

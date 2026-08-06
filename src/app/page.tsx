@@ -640,8 +640,13 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[11px] text-zinc-600">
-              Mostrando {((page - 1) * PER_PAGE) + 1}–{Math.min(page * PER_PAGE, total)} de {total}
+              {((page - 1) * PER_PAGE) + 1}–{Math.min(page * PER_PAGE, total)} de {total}
             </span>
+            {totalPages > 1 && (
+              <span className="text-[11px] text-zinc-700 font-mono">
+                Página {page}/{totalPages}
+              </span>
+            )}
           </div>
         </div>
 
@@ -711,6 +716,7 @@ export default function Home() {
                   product={product}
                   index={i}
                   discountBadge={discountBadge}
+                  liveUpdates={liveUpdates}
                   onClick={() => setSelectedProduct(product)}
                 />
               )
@@ -720,11 +726,21 @@ export default function Home() {
 
         {/* Empty state for search */}
         {!loading && search && displayProducts.length === 0 && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-20">
-            <Search className="w-12 h-12 text-zinc-800 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-zinc-400 mb-1">Nenhum resultado</h3>
-            <p className="text-sm text-zinc-600">Tente buscar por outro termo</p>
-            <Button variant="ghost" className="mt-4 text-xs text-zinc-500" onClick={() => handleSearch('')}>Limpar busca</Button>
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="text-center py-20">
+            <div className="w-16 h-16 rounded-2xl bg-zinc-900 flex items-center justify-center mx-auto mb-4">
+              <Search className="w-8 h-8 text-zinc-700" />
+            </div>
+            <h3 className="text-lg font-semibold text-zinc-300 mb-2">Nenhum resultado encontrado</h3>
+            <p className="text-sm text-zinc-500 mb-1">Nenhum produto corresponde a &quot;{search}&quot;</p>
+            <p className="text-xs text-zinc-600 mb-4">Tente buscar por outro termo ou limpar os filtros</p>
+            <div className="flex items-center justify-center gap-2">
+              <Button variant="ghost" className="text-xs text-zinc-400 hover:text-emerald-400" onClick={() => handleSearch('')}>
+                <X className="w-3.5 h-3.5 mr-1.5" />Limpar busca
+              </Button>
+              <Button variant="ghost" className="text-xs text-zinc-400 hover:text-emerald-400" onClick={() => handleCategory('all')}>
+                <Layers className="w-3.5 h-3.5 mr-1.5" />Ver todos
+              </Button>
+            </div>
           </motion.div>
         )}
 
@@ -732,7 +748,7 @@ export default function Home() {
         {loading && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {skeletonCount.map(i => (
-              <Card key={i} className="border-white/[0.05] bg-zinc-900/40">
+              <Card key={i} className="border-white/[0.05] bg-zinc-900/40 animate-shimmer">
                 <CardContent className="p-4 space-y-3">
                   <div className="flex items-center gap-3">
                     <Skeleton className="w-11 h-11 rounded-xl bg-zinc-800" />
@@ -741,12 +757,13 @@ export default function Home() {
                       <Skeleton className="h-2.5 w-1/2 bg-zinc-800" />
                     </div>
                   </div>
-                  <Skeleton className="h-8 w-full bg-zinc-800" />
+                  <Skeleton className="h-12 w-full bg-zinc-800 rounded-lg" />
                   <Skeleton className="h-3 w-20 bg-zinc-800" />
+                  <Skeleton className="h-1.5 w-full bg-zinc-800 rounded-full" />
                   <div className="pt-2.5 border-t border-white/[0.04]">
                     <div className="flex items-center justify-between">
                       <Skeleton className="h-4 w-16 bg-zinc-800" />
-                      <Skeleton className="h-7 w-20 bg-zinc-800" />
+                      <Skeleton className="h-7 w-20 bg-zinc-800 rounded-lg" />
                     </div>
                   </div>
                 </CardContent>
@@ -846,6 +863,16 @@ export default function Home() {
                 </div>
               )}
             </div>
+          </div>
+          <div className="flex items-center justify-between mt-4 pt-4 border-t border-white/[0.04]">
+            <p className="text-[10px] text-zinc-600 font-mono">Nexus AI-OS © {new Date().getFullYear()} • b'AI'tcoin Protocol</p>
+            <button
+              onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+              className="flex items-center gap-1.5 text-[10px] text-zinc-500 hover:text-emerald-400 transition-colors"
+            >
+              <ChevronUp className="w-3.5 h-3.5" />
+              Voltar ao topo
+            </button>
           </div>
         </div>
       </footer>
