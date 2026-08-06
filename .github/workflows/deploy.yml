@@ -30,7 +30,7 @@ concurrency:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -101,9 +101,7 @@ jobs:
           HG_SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
         run: |
           if [ -z "$HG_SESSION_SECRET" ]; then
-            echo "WARNING: SESSION_SECRET secret not set in GitHub — sessions will NOT work until configured"
-            echo "Create it at: https://github.com/Nexus-HUB57/AI_Store/settings/secrets/actions"
-            echo "Using temporary placeholder (CGI will refuse to start)"
+            echo "WARNING: SESSION_SECRET secret not set in GitHub — sessions will NOT work"
             HG_SESSION_SECRET="__SET_SESSION_SECRET_IN_GITHUB_SECRETS__"
           fi
           sed -i "s/^# (configured during deploy.*)$/SetEnv SESSION_SECRET ${HG_SESSION_SECRET}/" hostgator/root-htaccess
@@ -132,7 +130,6 @@ jobs:
         run: |
           if [ -z "$HG_CREDS" ]; then
             echo "ERROR: Secret CREDENCIAIS_HOSTGATOR not set"
-            echo "Add it at: https://github.com/Nexus-HUB57/AI_Store/settings/secrets/actions"
             exit 1
           fi
           echo "Secret found (${#HG_CREDS} chars)"
@@ -142,24 +139,21 @@ jobs:
           
           def clean_val(v):
               if not v: return ""
-              # Remove common labels and leading/trailing whitespace/quotes
               v = re.sub(r'^(Host|Port|User|Pass|Password|Senha|Servidor|Usuario|Usuário|Porta|Login|Username):\s*', '', v, flags=re.I)
               return v.strip().strip('"').strip("'")
 
           def parse_creds(raw):
-              # Try JSON first
               try:
                   c = json.loads(raw)
                   return {
                       'host': clean_val(str(c.get('host', c.get('hostname', c.get('servidor', ''))))),
-                      'user': clean_val(str(c.get('user', c.get('username', c.get('usuario', c.get('usuário', '')))))),
+                      'user': clean_val(str(c.get('user', c.get('username', c.get('usuario', c.get('usuário', ''))))),
                       'pwd': clean_val(str(c.get('password', c.get('pass', c.get('senha', ''))))),
                       'port': clean_val(str(c.get('port', c.get('porta', '21'))))
                   }
               except:
                   pass
 
-              # Try key-value pairs (colon or equals)
               kv = {}
               lines = [l.strip() for l in raw.splitlines() if l.strip()]
               for line in lines:
@@ -187,19 +181,15 @@ jobs:
                   if 'port' not in result: result['port'] = '21'
                   return result
 
-              # Fallback: split by whitespace or colons and look for 4 parts
               parts = re.split(r'[\s,;|]+', raw)
               parts = [p.strip() for p in parts if p.strip()]
-              
-              # Heuristic: filter out labels
               labels = {'host', 'hostname', 'servidor', 'user', 'username', 'usuário', 'usuario', 'password', 'pass', 'senha', 'port', 'porta', 'ftp', 'login'}
               clean_parts = [p for p in parts if p.lower().rstrip(':') not in labels]
               
               if len(clean_parts) >= 3:
                   port = '21'
-                  # Try to find port
                   for i, p in enumerate(clean_parts):
-                      if p.isdigit() and int(p) in [21, 22, 2121]:
+                      if p.isdigit() and int(p) in [21, 22, 2222, 2121]:
                           port = p
                           clean_parts.pop(i)
                           break
@@ -211,7 +201,7 @@ jobs:
 
           creds = parse_creds(raw)
           if not creds:
-              print(f"ERROR: Could not parse credentials from secret. Raw length: {len(raw)}")
+              print(f"ERROR: Could not parse credentials. Raw length: {len(raw)}")
               sys.exit(1)
 
           host, port, user, pwd = creds['host'], creds['port'], creds['user'], creds['pwd']
@@ -224,118 +214,208 @@ jobs:
               f.write(f'PORT={port}\n')
               f.write(f'USER={user}\n')
               f.write(f'PASS={pwd}\n')
-          print('Credentials successfully written to GITHUB_ENV')
+          print('Credentials written to GITHUB_ENV')
           PYEOF
 
-      - name: Test FTP connection
-        run: |
-          python3 << 'PYEOF'
-          import ftplib, os, sys
-          try:
-              host, port, user, pwd = os.environ['HOST'], int(os.environ['PORT']), os.environ['USER'], os.environ['PASS']
-              print(f"Attempting to connect to {host}:{port}...")
-              ftps = ftplib.FTP_TLS()
-              ftps.connect(host, port, timeout=30)
-              ftps.login(user, pwd)
-              ftps.prot_p()
-              print(f'Connected successfully to {host}:{port} as {user}')
-              ftps.quit()
-              print('FTP connection test passed')
-          except Exception as e:
-              print(f'FTP connection failed: {e}', file=sys.stderr)
-              sys.exit(1)
-          PYEOF
-
-      - name: Deploy files via FTP
+      - name: Deploy to HostGator
         env:
           HG_HOST: ${{ env.HOST }}
           HG_PORT: ${{ env.PORT }}
           HG_USER: ${{ env.USER }}
           HG_PASS: ${{ env.PASS }}
         run: |
+          pip install paramiko 2>/dev/null
           python3 << 'PYEOF'
-          import ftplib, os, sys
+          import os, sys, stat
+          import ftplib
+          import socket
+
           host = os.environ['HG_HOST']
-          port = int(os.environ['HG_PORT'])
+          port = int(os.environ['PORT'])
           user = os.environ['HG_USER']
           pwd = os.environ['HG_PASS']
-          files = [
-            ('deploy/aistore-api.cgi', 'public_html/aistore-api.cgi'),
-            ('deploy/aistore-test.cgi', 'public_html/aistore-test.cgi'),
-          ]
-          try:
-            ftps = ftplib.FTP_TLS()
-            ftps.connect(host, port, timeout=30)
-            ftps.login(user, pwd)
-            ftps.prot_p()
-            print(f'Connected to {host}:{port} as {user}')
-            for local, remote in files:
-              print(f'Uploading {local} -> {remote}')
+
+          def try_sftp(host, port_ssh, user, pwd, timeout=20):
+              """Try SFTP (SSH) connection."""
+              try:
+                  import paramiko
+                  ssh = paramiko.SSHClient()
+                  ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                  ssh.connect(host, port=port_ssh, username=user, password=pwd, timeout=timeout)
+                  sftp = ssh.open_sftp()
+                  print(f'SFTP connected to {host}:{port_ssh} as {user}')
+                  return sftp, ssh
+              except Exception as e:
+                  print(f'SFTP on port {port_ssh} failed: {e}')
+                  return None, None
+
+          def try_ftp_tls(host, port, user, pwd, timeout=20):
+              """Try FTP-TLS connection."""
+              try:
+                  ftps = ftplib.FTP_TLS()
+                  ftps.connect(host, port, timeout=timeout)
+                  ftps.login(user, pwd)
+                  ftps.prot_p()
+                  print(f'FTP-TLS connected to {host}:{port} as {user}')
+                  return ftps
+              except Exception as e:
+                  print(f'FTP-TLS failed: {e}')
+                  return None
+
+          def try_ftp_plain(host, port, user, pwd, timeout=20):
+              """Try plain FTP connection."""
+              try:
+                  ftp = ftplib.FTP()
+                  ftp.connect(host, port, timeout=timeout)
+                  ftp.login(user, pwd)
+                  print(f'FTP-plain connected to {host}:{port} as {user}')
+                  return ftp
+              except Exception as e:
+                  print(f'FTP-plain failed: {e}')
+                  return None
+
+          # Upload files to remote path
+          def upload_file_sftp(sftp, local, remote):
+              sftp.put(local, remote)
+              print(f'  SFTP: {local} -> {remote}')
+
+          def upload_file_ftp(ftp, local, remote):
               with open(local, 'rb') as f:
-                ftps.storbinary(f'STOR {remote}', f)
-              print(f'  OK')
-            # Create aistore dir and upload config
-            try: ftps.mkd('public_html/aistore')
-            except: pass
-            config_files = [
+                  ftp.storbinary(f'STOR {remote}', f)
+              print(f'  FTP: {local} -> {remote}')
+
+          # Ensure remote directory exists
+          def ensure_dir_sftp(sftp, path):
+              try:
+                  sftp.stat(path)
+              except FileNotFoundError:
+                  parts = path.split('/')
+                  for i in range(2, len(parts) + 1):
+                      p = '/'.join(parts[:i])
+                      try:
+                          sftp.stat(p)
+                      except FileNotFoundError:
+                          try:
+                              sftp.mkdir(p)
+                          except:
+                              pass
+
+          def ensure_dir_ftp(ftp, path):
+              try:
+                  ftp.cwd(path)
+              except:
+                  parts = path.split('/')
+                  for i in range(2, len(parts) + 1):
+                      p = '/'.join(parts[:i])
+                      try:
+                          ftp.cwd(p)
+                      except:
+                          try:
+                              ftp.mkd(p)
+                          except:
+                              pass
+              ftp.cwd('/')
+
+          # ── Try connection methods in order ──
+          conn = None
+          conn_type = None
+          sftp_ssh = None
+
+          # 1. Try SFTP on port 22
+          sftp, ssh = try_sftp(host, 22, user, pwd)
+          if sftp:
+              conn, conn_type = sftp, 'sftp'
+              sftp_ssh = ssh
+          else:
+              # 2. Try SFTP on port 2222 (HostGator alternate)
+              sftp, ssh = try_sftp(host, 2222, user, pwd)
+              if sftp:
+                  conn, conn_type = sftp, 'sftp'
+                  sftp_ssh = ssh
+              else:
+                  # 3. Try FTP-TLS
+                  conn = try_ftp_tls(host, port, user, pwd)
+                  if conn:
+                      conn_type = 'ftps'
+                  else:
+                      # 4. Try plain FTP
+                      conn = try_ftp_plain(host, port, user, pwd)
+                      if conn:
+                          conn_type = 'ftp'
+
+          if not conn:
+              print('ERROR: All connection methods failed (SFTP:22, SFTP:2222, FTP-TLS, FTP)')
+              sys.exit(1)
+
+          print(f'Using {conn_type} for deployment')
+
+          # ── Upload files ──
+          files = [
+              ('deploy/aistore-api.cgi', 'public_html/aistore-api.cgi'),
+              ('deploy/aistore-test.cgi', 'public_html/aistore-test.cgi'),
+          ]
+          config_files = [
               ('deploy/.htaccess', 'public_html/aistore/.htaccess'),
               ('deploy/setup_aistore.sh', 'public_html/aistore/setup_aistore.sh'),
-            ]
-            for local, remote in config_files:
-              print(f'Uploading {local} -> {remote}')
-              with open(local, 'rb') as f:
-                ftps.storbinary(f'STOR {remote}', f)
-              print(f'  OK')
-            # Root .htaccess (atomic replace)
-            print('Deploying root .htaccess...')
-            with open('deploy/root-htaccess', 'rb') as f:
-              ftps.storbinary('STOR public_html/.htaccess.aistore-new', f)
-            try: ftps.rename('public_html/.htaccess', 'public_html/.htaccess.bak.aistore')
-            except: pass
-            ftps.rename('public_html/.htaccess.aistore-new', 'public_html/.htaccess')
-            print('Root .htaccess deployed')
-            ftps.quit()
-            print('All files uploaded successfully')
-          except Exception as e:
-            print(f'FTP error: {e}', file=sys.stderr)
-            sys.exit(1)
-          PYEOF
+          ]
+          root_htaccess = ('deploy/root-htaccess', 'public_html/.htaccess')
+          tarball = ('deploy/aistore-codebase.tar.gz', 'public_html/aistore-codebase.tar.gz')
 
-      - name: Deploy codebase tarball
-        env:
-          HG_HOST: ${{ env.HOST }}
-          HG_PORT: ${{ env.PORT }}
-          HG_USER: ${{ env.USER }}
-          HG_PASS: ${{ env.PASS }}
-        run: |
-          echo "Tarball: $(du -sh deploy/aistore-codebase.tar.gz | cut -f1)"
-          python3 << 'PYEOF'
-          import ftplib, os, sys
-          host = os.environ['HG_HOST']
-          port = int(os.environ['HG_PORT'])
-          user = os.environ['HG_USER']
-          pwd = os.environ['HG_PASS']
           try:
-            ftps = ftplib.FTP_TLS()
-            ftps.connect(host, port, timeout=60)
-            ftps.login(user, pwd)
-            ftps.prot_p()
-            print(f'Uploading tarball...')
-            with open('deploy/aistore-codebase.tar.gz', 'rb') as f:
-              ftps.storbinary('STOR public_html/aistore-codebase.tar.gz', f)
-            print('Tarball uploaded')
-            ftps.quit()
+              if conn_type == 'sftp':
+                  ensure_dir_sftp(conn, 'public_html/aistore')
+                  for local, remote in files:
+                      upload_file_sftp(conn, local, remote)
+                      conn.chmod(remote, 0o755)
+                  for local, remote in config_files:
+                      upload_file_sftp(conn, local, remote)
+                  # Atomic root .htaccess replace
+                  upload_file_sftp(conn, root_htaccess[0], root_htaccess[1] + '.aistore-new')
+                  try:
+                      old = root_htaccess[1] + '.bak.aistore'
+                      try: conn.remove(old)
+                      except: pass
+                      conn.rename(root_htaccess[1], old)
+                  except: pass
+                  conn.rename(root_htaccess[1] + '.aistore-new', root_htaccess[1])
+                  # Tarball
+                  upload_file_sftp(conn, tarball[0], tarball[1])
+                  print(f'SFTP upload complete')
+              else:
+                  # FTP / FTP-TLS
+                  ensure_dir_ftp(conn, 'public_html/aistore')
+                  for local, remote in files:
+                      upload_file_ftp(conn, local, remote)
+                  for local, remote in config_files:
+                      upload_file_ftp(conn, local, remote)
+                  with open(root_htaccess[0], 'rb') as f:
+                      conn.storbinary(f'STOR {root_htaccess[1]}.aistore-new', f)
+                  try:
+                      try: conn.rename(root_htaccess[1], root_htaccess[1] + '.bak.aistore')
+                      except: pass
+                      conn.rename(root_htaccess[1] + '.aistore-new', root_htaccess[1])
+                  except: pass
+                  with open(tarball[0], 'rb') as f:
+                      conn.storbinary(f'STOR {tarball[1]}', f)
+                  print(f'FTP upload complete')
+                  conn.quit()
+
+              print('ALL FILES DEPLOYED SUCCESSFULLY')
           except Exception as e:
-            print(f'Tarball upload error: {e}', file=sys.stderr)
-            sys.exit(1)
+              print(f'Upload error: {e}', file=sys.stderr)
+              sys.exit(1)
+          finally:
+              if sftp_ssh:
+                  try: sftp_ssh.close()
+                  except: pass
           PYEOF
 
       - name: Run smoke test
         if: always()
         run: |
           echo "=== Deploy Verification ==="
-          echo "Waiting 20s for first request (CGI may install Node.js)..."
-          sleep 20
+          echo "Waiting 25s for first request (CGI may install Node.js)..."
+          sleep 25
           HTTP_CODE=$(curl -s -o /tmp/verify.json -w '%{http_code}' --max-time 120 'https://www.mybait.org/aistore/api/version' 2>/dev/null || echo "000")
           echo "AI Store /api/version: HTTP $HTTP_CODE"
           if [ -s /tmp/verify.json ]; then
