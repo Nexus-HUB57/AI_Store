@@ -15,127 +15,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install paramiko
+        run: pip install paramiko 2>/dev/null || true
+
       - name: Run diagnostic
         env:
           HG_CREDS: ${{ secrets.CREDENCIAIS_HOSTGATOR }}
-        run: |
-          pip install paramiko 2>/dev/null || true
-          python3 -c '
-import os,sys,re,socket,ftplib,json
+        run: python3 scripts/ftp-diag.py
 
-F="/tmp/diag.txt"
-R=[]
-def L(m=""):
-    R.append(m)
-    print(m)
-
-raw = os.environ.get("HG_CREDS","").strip()
-L(f"Secret length: {len(raw)}")
-L(f"Lines: {len(raw.splitlines())}")
-L(f"Starts with JSON: {raw.strip().startswith(chr(123))}")
-L(f"First 150: {repr(raw[:150])}")
-L("")
-
-if not raw:
-    L("ERROR: Secret is empty")
-    sys.exit(1)
-
-def cv(v):
-    if not v: return ""
-    v=re.sub(r"^(Host|Port|User|Pass|Password|Senha|Servidor|Usuario|Login|Username):\s*","",v,flags=re.I)
-    return v.strip().strip(chr(34)).strip(chr(39))
-
-try:
-    c=json.loads(raw)
-    host=cv(str(c.get("host",c.get("hostname",c.get("servidor","")))))
-    user=cv(str(c.get("user",c.get("username",c.get("usuario","")))))
-    pwd=cv(str(c.get("password",c.get("pass",c.get("senha","")))))
-    port=cv(str(c.get("port",c.get("porta","21"))))
-except:
-    kv={}
-    for line in raw.splitlines():
-        line=line.strip()
-        if not line: continue
-        for sep in [": ",":","= "]:
-            if sep in line:
-                k,v=line.split(sep,1)
-                kv[k.strip().lower()]=v.strip()
-                break
-    L(f"KV keys: {list(kv.keys())}")
-    m={"host":["host","hostname","servidor","ftp","server"],"user":["user","username","usuario","login"],"pwd":["password","pass","senha"],"port":["port","porta"]}
-    r={}
-    for key,aliases in m.items():
-        for a in aliases:
-            if a in kv:
-                r[key]=cv(kv[a])
-                break
-    host=r.get("host","")
-    user=r.get("user","")
-    pwd=r.get("pwd","")
-    port=r.get("port","21")
-
-port=int(re.sub(r"\D","",str(port)) or "21")
-
-if not host or not user or not pwd:
-    L(f"PARSING FAILED: host={bool(host)} user={bool(user)} pwd={bool(pwd)}")
-    sys.exit(1)
-
-L(f"Parsed: HOST={host} PORT={port} USER={user} PASS_LEN={len(pwd)}")
-
-L("")
-L("=== DNS ===")
-try:
-    ips=socket.getaddrinfo(host,None)
-    for ip in ips[:5]: L(f"  {ip[4][0]}")
-except Exception as e: L(f"  {e}")
-
-L("")
-L("=== TCP Ports ===")
-for tp,lb in [(21,"FTP"),(22,"SSH"),(2222,"Alt SSH"),(990,"FTPS")]:
-    try:
-        s=socket.socket();s.settimeout(5)
-        r=s.connect_ex((host,tp));s.close()
-        L(f"  {tp:5} ({lb:14}): {\"OPEN\" if r==0 else f\"CLOSED/{r}\"}")
-    except Exception as e: L(f"  {tp:5} ({lb:14}): {e}")
-
-L("")
-L("=== FTP Tests ===")
-
-L(f"1. Plain FTP {host}:{port}")
-try:
-    ftp=ftplib.FTP();ftp.connect(host,port,timeout=15)
-    L(f"   Connected: {ftp.getwelcome()[:80]}")
-    ftp.login(user,pwd)
-    L(f"   Login OK, PWD={ftp.pwd()}")
-    ftp.quit();L(f"   SUCCESS")
-except Exception as e: L(f"   FAILED: {type(e).__name__}: {e}")
-
-L(f"2. FTP-TLS {host}:{port}")
-try:
-    ftps=ftplib.FTP_TLS();ftps.connect(host,port,timeout=15)
-    L(f"   Connected")
-    ftps.login(user,pwd);L(f"   Login OK")
-    ftps.prot_p();L(f"   TLS ON")
-    ftps.quit();L(f"   SUCCESS")
-except Exception as e: L(f"   FAILED: {type(e).__name__}: {e}")
-
-for sp in [22,2222]:
-    L(f"3. SFTP {host}:{sp}")
-    try:
-        import paramiko
-        ssh=paramiko.SSHClient();ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh.connect(host,port=sp,username=user,password=pwd,timeout=15,banner_timeout=15)
-        L(f"   SSH OK")
-        sftp=ssh.open_sftp()
-        L(f"   SFTP OK, files={sftp.listdir(chr(46))[:10]}")
-        sftp.close();ssh.close();L(f"   SUCCESS")
-    except ImportError: L(f"   paramiko N/A")
-    except Exception as e: L(f"   FAILED: {type(e).__name__}: {e}")
-
-with open(F,"w") as f: f.write(chr(10).join(R))
-' 2>&1
-
-      - name: Output diagnostic results
+      - name: Output results
         if: always()
         run: cat /tmp/diag.txt 2>/dev/null || echo 'No results file'
 
