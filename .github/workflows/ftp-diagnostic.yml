@@ -1,0 +1,190 @@
+name: FTP Diagnostic
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Diagnostic reason'
+        required: false
+        default: 'Debug FTP connection'
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse credentials and test connections
+        env:
+          HG_CREDS: ${{ secrets.CREDENCIAIS_HOSTGATOR }}
+        run: |
+          echo "=== Credential Analysis ==="
+          echo "Secret length: ${#HG_CREDS} chars"
+          echo "First 5 chars: ${HG_CREDS:0:5}..."
+          echo "Contains newline: $(echo "$HG_CREDS" | wc -l) lines"
+          echo ""
+          echo "=== Raw (first 200 chars, masked) ==="
+          echo "$HG_CREDS" | head -c 200 | sed 's/./x/g'
+          echo ""
+
+          python3 << 'PYEOF'
+          import os, sys, re, json, socket, ftplib
+          raw = os.environ['HG_CREDS'].strip()
+          print(f'\n=== Python Credential Parser ===')
+          print(f'Raw length: {len(raw)}')
+          print(f'Lines: {len(raw.splitlines())}')
+          print(f'Has JSON: {raw.strip().startswith("{")}')
+          print(f'First 100 chars: {repr(raw[:100])}')
+
+          def clean_val(v):
+              if not v: return ""
+              v = re.sub(r'^(Host|Port|User|Pass|Password|Senha|Servidor|Usuario|Usuário|Porta|Login|Username):\s*', '', v, flags=re.I)
+              return v.strip().strip('"').strip("'")
+
+          def parse_creds(raw):
+              try:
+                  c = json.loads(raw)
+                  return {
+                      'host': clean_val(str(c.get('host', c.get('hostname', c.get('servidor', ''))))),
+                      'user': clean_val(str(c.get('user', c.get('username', c.get('usuario', c.get('usuário', ''))))),
+                      'pwd': clean_val(str(c.get('password', c.get('pass', c.get('senha', ''))))),
+                      'port': clean_val(str(c.get('port', c.get('porta', '21'))))
+                  }
+              except Exception as e:
+                  print(f'JSON parse failed: {e}')
+
+              kv = {}
+              for line in raw.splitlines():
+                  line = line.strip()
+                  if not line: continue
+                  for sep in [':', '=', ': ']:
+                      if sep in line:
+                          k, v = line.split(sep, 1)
+                          kv[k.strip().lower()] = v.strip()
+                          break
+              
+              mapping = {
+                  'host': ['host', 'hostname', 'servidor', 'ftp', 'server'],
+                  'user': ['user', 'username', 'usuário', 'usuario', 'login'],
+                  'pwd': ['password', 'pass', 'senha'],
+                  'port': ['port', 'porta']
+              }
+              result = {}
+              for key, aliases in mapping.items():
+                  for alias in aliases:
+                      if alias in kv:
+                          result[key] = clean_val(kv[alias])
+                          break
+              
+              if result.get('host') and result.get('user') and result.get('pwd'):
+                  if 'port' not in result: result['port'] = '21'
+                  return result
+              return None
+
+          creds = parse_creds(raw)
+          if not creds:
+              print('CREDENTIAL PARSING FAILED')
+              print(f'All keys found in kv: {list(kv.keys()) if "kv" in dir() else "N/A"}')
+              sys.exit(1)
+
+          host = creds['host']
+          port = int(re.sub(r'\D', '', str(creds['port'])) or '21')
+          user = creds['user']
+          pwd = creds['pwd']
+          print(f'\nParsed: HOST={host} PORT={port} USER={user} PASS_LEN={len(pwd)}')
+
+          # DNS resolution
+          print(f'\n=== DNS Resolution ===')
+          try:
+              ips = socket.getaddrinfo(host, None)
+              for ip in ips[:3]:
+                  print(f'  {ip[4][0]} ({ip[1]})')
+          except Exception as e:
+              print(f'  DNS failed: {e}')
+
+          # TCP connection test
+          print(f'\n=== TCP Connection Tests ===')
+          for test_port, label in [(22, 'SSH/SFTP'), (21, 'FTP'), (2222, 'Alt SSH'), (990, 'FTPS implicit')]:
+              try:
+                  s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                  s.settimeout(5)
+                  result = s.connect_ex((host, test_port))
+                  s.close()
+                  status = 'OPEN' if result == 0 else f'CLOSED (err={result})'
+                  print(f'  Port {test_port:5} ({label:14}): {status}')
+              except Exception as e:
+                  print(f'  Port {test_port:5} ({label:14}): ERROR {e}')
+
+          # FTP connection tests
+          print(f'\n=== FTP Connection Tests ===')
+
+          # Test 1: Plain FTP
+          print(f'\n1. Plain FTP {host}:{port}')
+          try:
+              ftp = ftplib.FTP()
+              ftp.connect(host, port, timeout=15)
+              print(f'  Connected')
+              ftp.login(user, pwd)
+              print(f'  Logged in as {user}')
+              print(f'  Welcome: {ftp.getwelcome()[:100]}')
+              ftp.quit()
+              print(f'  SUCCESS')
+          except Exception as e:
+              print(f'  FAILED: {type(e).__name__}: {e}')
+
+          # Test 2: FTP-TLS
+          print(f'\n2. FTP-TLS {host}:{port}')
+          try:
+              ftps = ftplib.FTP_TLS()
+              ftps.connect(host, port, timeout=15)
+              print(f'  Connected')
+              ftps.login(user, pwd)
+              print(f'  Logged in')
+              ftps.prot_p()
+              print(f'  Data protection: ON')
+              ftps.quit()
+              print(f'  SUCCESS')
+          except Exception as e:
+              print(f'  FAILED: {type(e).__name__}: {e}')
+
+          # Test 3: SFTP port 22
+          print(f'\n3. SFTP {host}:22')
+          try:
+              import subprocess
+              result = subprocess.run(
+                  ['sshpass', '-p', pwd, 'sftp', '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=10', f'{user}@{host}:/tmp/test.txt'],
+                  capture_output=True, text=True, timeout=15, input='ls\nexit\n'
+              )
+              print(f'  stdout: {result.stdout[:200]}')
+              print(f'  stderr: {result.stderr[:200]}')
+              print(f'  exit code: {result.returncode}')
+          except FileNotFoundError:
+              print(f'  sshpass not available, skipping')
+          except Exception as e:
+              print(f'  FAILED: {type(e).__name__}: {e}')
+
+          # Test 4: SFTP via paramiko
+          print(f'\n4. SFTP via paramiko {host}:22')
+          try:
+              import paramiko
+              ssh = paramiko.SSHClient()
+              ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+              ssh.connect(host, port=22, username=user, password=pwd, timeout=15)
+              print(f'  SSH connected')
+              sftp = ssh.open_sftp()
+              print(f'  SFTP opened')
+              print(f'  CWD: {sftp.getcwd()}')
+              # List files
+              files = sftp.listdir('.')
+              print(f'  Files in home: {files[:10]}')
+              sftp.close()
+              ssh.close()
+              print(f'  SUCCESS')
+          except ImportError:
+              print(f'  paramiko not available')
+          except Exception as e:
+              print(f'  FAILED: {type(e).__name__}: {e}')
+
+          print(f'\n=== Diagnostic Complete ===')
+          PYEOF
