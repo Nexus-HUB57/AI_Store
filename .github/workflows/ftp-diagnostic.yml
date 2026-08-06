@@ -20,6 +20,7 @@ jobs:
           HG_CREDS: ${{ secrets.CREDENCIAIS_HOSTGATOR }}
         run: |
           pip install paramiko 2>/dev/null || true
+          exec > >(tee /tmp/diag-output.txt) 2>&1
           python3 << 'PYEOF'
           import os, sys, re, json, socket, ftplib
           raw = os.environ.get('HG_CREDS', '').strip()
@@ -200,17 +201,18 @@ jobs:
           log('=== Diagnostic Complete ===')
           PYEOF
 
-      - name: Save results
+      - name: Upload results to Gist
         if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "$GITHUB_RUN_ID" > /tmp/run-id.txt
-
-      - name: Upload results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ftp-diagnostic-results
-          path: |-
-            /tmp/diag-output.txt
-            /tmp/run-id.txt
-          retention-days: 1
+          if [ ! -f /tmp/diag-output.txt ]; then
+            echo 'No diagnostic output file'
+            exit 0
+          fi
+          CONTENT=$(cat /tmp/diag-output.txt | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')
+          GIST_DATA=$(printf '{"description":"FTP Diagnostic %s","public":false,"files":{"results.txt":{"content":%s}}}' "$(date)" "$CONTENT")
+          curl -sL -X POST -H "Authorization: token $GH_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$GIST_DATA" \
+            'https://api.github.com/gists' | python3 -c 'import sys,json; r=json.load(sys.stdin); print(f"Gist: {r.get(\"html_url\", r.get(\"message\", \"error\"))}")'
