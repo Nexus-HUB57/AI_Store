@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
     }
 
     const orderBy: Record<string, string> = {}
-    if (sort === 'pulsarEnergy') orderBy.pulsarEnergy = 'desc'
+    if (sort === 'pulsarEnergy' || sort === 'pulsar') orderBy.pulsarEnergy = 'desc'
     else if (sort === 'downloads') orderBy.downloads = 'desc'
     else if (sort === 'rating') orderBy.rating = 'desc'
     else if (sort === 'price') orderBy.precoSats = 'asc'

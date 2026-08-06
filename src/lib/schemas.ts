@@ -35,7 +35,7 @@ export const reviewSchema = z.object({
 export const productsQuerySchema = z.object({
   q: z.string().max(100).default(''),
   segmento: z.string().max(50).default(''),
-  sort: z.enum(['pulsarEnergy', 'downloads', 'rating', 'price', 'fitness', 'executions', 'newest']).default('pulsarEnergy'),
+  sort: z.enum(['pulsarEnergy', 'pulsar', 'downloads', 'rating', 'price', 'fitness', 'executions', 'newest']).default('pulsarEnergy'),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(24),
   featured: z.enum(['true', 'false']).optional(),
