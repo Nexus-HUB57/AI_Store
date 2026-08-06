@@ -147,7 +147,7 @@ jobs:
                   c = json.loads(raw)
                   return {
                       'host': clean_val(str(c.get('host', c.get('hostname', c.get('servidor', ''))))),
-                      'user': clean_val(str(c.get('user', c.get('username', c.get('usuario', c.get('usuário', ''))))),
+                      'user': clean_val(str(c.get('user', c.get('username', c.get('usuario', c.get('usuário', '')))))),
                       'pwd': clean_val(str(c.get('password', c.get('pass', c.get('senha', ''))))),
                       'port': clean_val(str(c.get('port', c.get('porta', '21'))))
                   }
