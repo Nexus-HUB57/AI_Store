@@ -167,9 +167,12 @@ def main():
     L("")
     L("=== Complete ===")
 
-    with open(F, "w") as f:
-        f.write("\n".join(R))
-
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        L(f"UNHANDLED ERROR: {type(e).__name__}: {e}")
+    finally:
+        with open(F, "w") as f:
+            f.write("\n".join(R))
