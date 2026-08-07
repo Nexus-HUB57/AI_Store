@@ -10,6 +10,14 @@ AddHandler cgi-script .cgi
 <IfModule mod_rewrite.c>
   RewriteEngine On
 
+  # Canonicalize legacy AI Store path
+  RewriteRule ^ai-store/?$ /aistore/ [R=301,L]
+
+  # Friendly aliases for b'AI'tcoin sections
+  RewriteRule ^bainkr/?$ /bainkr.html [L]
+  RewriteRule ^mainnet/?$ /index.html#dashboard [L]
+  RewriteRule ^explorer/?$ /index.html#dashboard [L]
+
   # ── bAI'tcoin daemon (existing) ──
   RewriteCond %{REQUEST_URI} !^/aistore
   RewriteRule ^api/(.*)$ /api.cgi/$1 [QSA,L,E=PATH_INFO:/$1]

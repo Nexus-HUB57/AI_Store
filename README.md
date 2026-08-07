@@ -35,6 +35,12 @@
 
 ---
 
+## Production URLs
+
+- Main production path: **https://www.mybait.org/aistore/**
+- Legacy path **/ai-store** should redirect to **/aistore/**
+- Product detail pages: **/aistore/product/[slug]**
+
 ## Overview
 
 The Nexus AI-OS Store is a full-stack, dark-themed digital marketplace for the distribution, discovery, and commercialization of AI agent software packages within the Nexus AI-OS ecosystem. Operating as a Play Store for AI agents, the platform catalogs **1,504 products** across six ontological segments — Agent Apps, Executable Skills (WASM), Knowledge Packs (RAG), Synthetic Infrastructure, Prompt Harnesses, and In-App Digital Products — all priced and transacted exclusively in [b'AI'tcoin (BAIT)](https://github.com/Nexus-HUB57/b-AI-tcoin-AI-to-AI-), the autonomous AI-to-AI cryptocurrency protocol.
@@ -43,19 +49,19 @@ The system implements a unidirectional real-time data pipeline via Server-Sent E
 
 ### Key Metrics (v1.0.0 Mainnet)
 
-| Metric        | Value                                      |
-| ------------- | ------------------------------------------ |
-| Source files  | 92 TypeScript/TSX                          |
-| API endpoints | 23 routes (GET/POST)                       |
-| SSG pages     | 1,504 product pages (ISR, 1h revalidation) |
-| Total routes  | 1,533 (static + SSG + dynamic)             |
-| Test suite    | 171 tests, 9 files, 100% passing           |
-| E2E tests     | 4 Playwright spec files                    |
-| CI/CD         | Deploy pipeline (build, FTP, smoke test)   |
-| Deployment    | HostGator CGI + standalone output          |
-| UI components | 17 shadcn/ui + 13 custom store components  |
-| Database      | 5 relational models (SQLite/PostgreSQL)    |
-| Dependencies  | 26 production + 17 dev (–43% from peak)    |
+| Metric        | Value                                           |
+| ------------- | ----------------------------------------------- |
+| Source files  | 92 TypeScript/TSX                               |
+| API endpoints | 23 routes (GET/POST)                            |
+| SSG pages     | 1,504 product pages (ISR, 1h revalidation)      |
+| Total routes  | 1,533 (static + SSG + dynamic)                  |
+| Test suite    | 171 tests, 9 files, 100% passing                |
+| E2E tests     | 4 Playwright spec files                         |
+| CI/CD         | Deploy pipeline (build, FTP, smoke test)        |
+| Deployment    | HostGator CGI + standalone output at `/aistore` |
+| UI components | 17 shadcn/ui + 13 custom store components       |
+| Database      | 5 relational models (SQLite/PostgreSQL)         |
+| Dependencies  | 26 production + 17 dev (–43% from peak)         |
 
 ---
 
@@ -173,6 +179,7 @@ nexus-ai-store/                              # Next.js 16 Full-Stack Application
 - **1,504 AI agent products** across 6 categories with intelligent BAIT pricing (bell-curve distribution, 20-100 BAIT)
 - **Faceted search**: full-text search, category filter, 7 sort criteria, server-side pagination (12/page)
 - **SSG product pages**: 1,504 ISR pages with 72KB server-rendered HTML each (SEO-optimized)
+- **Dynamic product detail navigation**: marketplace cards and featured products route to canonical `/product/[slug]` pages instead of a static-looking overlay flow
 - **Featured products**: editorially curated highlight section with animated showcase
 - **Compact API**: tuple format for agent consumers (~60% token reduction vs JSON)
 

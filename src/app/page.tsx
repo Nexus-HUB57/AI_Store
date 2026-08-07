@@ -19,6 +19,7 @@ import {
   LayoutDashboard, LogOut, User, Loader2, Hash, ChevronDown,
 } from 'lucide-react'
 import dynamic from 'next/dynamic'
+import { useRouter } from 'next/navigation'
 const CartPanel = dynamic(() => import('@/components/store/cart-panel').then(m => ({ default: m.CartPanel })), { ssr: false })
 const UploadAipkgDialog = dynamic(() => import('@/components/store/upload-aipkg-dialog').then(m => ({ default: m.UploadAipkgDialog })), { ssr: false })
 const LoginDialog = dynamic(() => import('@/components/auth/login-dialog').then(m => ({ default: m.LoginDialog })), { ssr: false })
@@ -338,6 +339,7 @@ function DashboardSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (
 /* ================================================================== */
 
 export default function Home() {
+  const router = useRouter()
   const [stats, setStats] = useState<Stats | null>(null)
   const [products, setProducts] = useState<Product[]>([])
   const [total, setTotal] = useState(0)
@@ -695,7 +697,7 @@ export default function Home() {
         {/* Featured Banner */}
         <AnimatePresence>
           {featuredProducts.length > 0 && (
-            <FeaturedProduct products={featuredProducts} onDismiss={() => setShowFeatured(false)} onSelectProduct={setSelectedProduct} />
+            <FeaturedProduct products={featuredProducts} onDismiss={() => setShowFeatured(false)} onSelectProduct={(product) => router.push(`/product/${product.slug}`)} />
           )}
         </AnimatePresence>
 
@@ -717,7 +719,7 @@ export default function Home() {
                   index={i}
                   discountBadge={discountBadge}
                   liveUpdates={liveUpdates}
-                  onClick={() => setSelectedProduct(product)}
+                  onClick={() => router.push(`/product/${product.slug}`)}
                 />
               )
             })}
