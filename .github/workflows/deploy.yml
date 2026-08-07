@@ -244,8 +244,39 @@ jobs:
           print('Credentials written to GITHUB_ENV')
           PYEOF
 
-      - name: Deploy to HostGator
-        if: ${{ success() }}
+      - name: Deploy via SSH/SCP (primary)
+        if: success()
+        continue-on-error: true
+        env:
+          HG_SSH_HOST: ${{ secrets.SSH_HOST }}
+          HG_SSH_PORT: ${{ secrets.SSH_PORT }}
+          HG_SSH_USER: ${{ secrets.SSH_USER }}
+          HG_SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          if [ -z "$HG_SSH_HOST" ] || [ -z "$HG_SSH_USER" ] || [ -z "$HG_SSH_KEY" ]; then
+            echo "SSH secrets not configured, skipping to FTP fallback"
+            exit 1
+          fi
+          echo "SSH deploy: $HG_SSH_USER@$HG_SSH_HOST:${HG_SSH_PORT}"
+          KEYFILE=$(mktemp)
+          echo "$HG_SSH_KEY" > "$KEYFILE"
+          chmod 600 "$KEYFILE"
+          SSH_OPT="-o StrictHostKeyChecking=no -o ConnectTimeout=15 -p ${HG_SSH_PORT:-22} -i $KEYFILE"
+          set -e
+          # Upload files
+          scp $SSH_OPT deploy/aistore-api.cgi "${HG_SSH_USER}@${HG_SSH_HOST}:~/public_html/aistore-api.cgi"
+          scp $SSH_OPT deploy/aistore-test.cgi "${HG_SSH_USER}@${HG_SSH_HOST}:~/public_html/aistore-test.cgi"
+          scp $SSH_OPT deploy/.htaccess "${HG_SSH_USER}@${HG_SSH_HOST}:~/public_html/aistore/.htaccess"
+          scp $SSH_OPT deploy/setup_aistore.sh "${HG_SSH_USER}@${HG_SSH_HOST}:~/public_html/aistore/setup_aistore.sh"
+          scp $SSH_OPT deploy/root-htaccess "${HG_SSH_USER}@${HG_SSH_HOST}:~/public_html/.htaccess"
+          scp $SSH_OPT deploy/aistore-codebase.tar.gz "${HG_SSH_USER}@${HG_SSH_HOST}:~/public_html/aistore-codebase.tar.gz"
+          # Set permissions
+          ssh $SSH_OPT "${HG_SSH_USER}@${HG_SSH_HOST}" "chmod 755 ~/public_html/aistore-api.cgi ~/public_html/aistore-test.cgi ~/public_html/aistore/setup_aistore.sh"
+          echo "SSH DEPLOY COMPLETE"
+          rm -f "$KEYFILE"
+
+      - name: Deploy to HostGator (FTP fallback)
+        if: failure()
         continue-on-error: true
         env:
           HG_HOST: ${{ env.HOST }}
