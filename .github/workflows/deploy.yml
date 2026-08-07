@@ -39,7 +39,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install dependencies
         run: |
@@ -131,15 +131,35 @@ jobs:
           cd deploy/standalone && tar czf ../aistore-codebase.tar.gz . && cd ../..
           echo "Tarball size: $(du -sh deploy/aistore-codebase.tar.gz | cut -f1)"
 
-      - name: Parse HostGator credentials
+      - name: Resolve HostGator credentials
         env:
           HG_CREDS: ${{ secrets.CREDENCIAIS_HOSTGATOR }}
+          HG_FTP_HOST: ${{ secrets.FTP_HOST }}
+          HG_FTP_PORT: ${{ secrets.FTP_PORT }}
+          HG_FTP_USER: ${{ secrets.FTP_USER }}
+          HG_FTP_PASS: ${{ secrets.FTP_PASS }}
         run: |
+          # ── Strategy 1: Use individual FTP secrets (preferred) ──
+          if [ -n "$HG_FTP_HOST" ] && [ -n "$HG_FTP_USER" ] && [ -n "$HG_FTP_PASS" ]; then
+            HOST="$HG_FTP_HOST"
+            PORT="${HG_FTP_PORT:-21}"
+            USER="$HG_FTP_USER"
+            PASS="$HG_FTP_PASS"
+            echo "Using individual FTP secrets"
+            echo "HOST=$HOST" >> "$GITHUB_ENV"
+            echo "PORT=$PORT" >> "$GITHUB_ENV"
+            echo "USER=$USER" >> "$GITHUB_ENV"
+            echo "PASS=$PASS" >> "$GITHUB_ENV"
+            echo "Resolved: HOST=$HOST PORT=$PORT USER=$USER PASS_LEN=${#PASS}"
+            exit 0
+          fi
+
+          # ── Strategy 2: Parse CREDENCIAIS_HOSTGATOR ──
           if [ -z "$HG_CREDS" ]; then
-            echo "ERROR: Secret CREDENCIAIS_HOSTGATOR not set"
+            echo "ERROR: No FTP credentials found (set FTP_HOST/FTP_USER/FTP_PASS or CREDENCIAIS_HOSTGATOR)"
             exit 1
           fi
-          echo "Secret found (${#HG_CREDS} chars)"
+          echo "Secret found (${#HG_CREDS} chars), parsing..."
           python3 << 'PYEOF'
           import os, json, sys, re
           raw = os.environ['HG_CREDS'].strip()
@@ -452,18 +472,24 @@ jobs:
         if: always()
         run: |
           echo "=== Deploy Verification ==="
-          echo "Waiting 25s for first request (CGI may install Node.js)..."
-          sleep 25
-          HTTP_CODE=$(curl -s -o /tmp/verify.json -w '%{http_code}' --max-time 120 'https://www.mybait.org/aistore/api/version' 2>/dev/null || echo "000")
-          echo "AI Store /api/version: HTTP $HTTP_CODE"
-          if [ -s /tmp/verify.json ]; then
-            cat /tmp/verify.json | python3 -m json.tool 2>/dev/null || cat /tmp/verify.json
-          fi
-          echo ""
-          echo "=== CGI Direct Test ==="
-          curl -sI --max-time 15 'https://www.mybait.org/aistore-test.cgi' 2>/dev/null | head -10 || echo 'test.cgi unreachable'
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "DEPLOY SUCCESSFUL"
-          else
-            echo "WARNING: HTTP $HTTP_CODE — Run deploy-on-server.sh on HostGator"
+          echo "Waiting 30s for first request (CGI cold start)..."
+          sleep 30
+          for attempt in 1 2 3; do
+            echo "Attempt $attempt/3..."
+            HTTP_CODE=$(curl -s -o /tmp/verify.json -w '%{http_code}' --max-time 120 'https://www.mybait.org/aistore/api/version' 2>/dev/null || echo "000")
+            echo "AI Store /api/version: HTTP $HTTP_CODE"
+            if [ -s /tmp/verify.json ]; then
+              cat /tmp/verify.json | python3 -m json.tool 2>/dev/null || cat /tmp/verify.json
+            fi
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "DEPLOY SUCCESSFUL"
+              break
+            fi
+            if [ $attempt -lt 3 ]; then
+              echo "Retrying in 15s..."
+              sleep 15
+            fi
+          done
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "WARNING: All attempts returned HTTP $HTTP_CODE"
           fi
