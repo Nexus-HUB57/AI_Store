@@ -1,526 +1,82 @@
-name: Deploy AI Store
+name: Deploy AI Store to HostGator
 
 on:
   push:
     branches: [main]
-    paths:
-      - 'src/**'
-      - 'prisma/**'
-      - 'public/**'
-      - 'hostgator/**'
-      - '.github/workflows/deploy.yml'
-      - 'scripts/seed-full.ts'
-      - 'db/**'
-      - 'next.config.ts'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'tsconfig.json'
-      - 'eslint.config.mjs'
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/**'
   workflow_dispatch:
     inputs:
-      reason:
-        description: 'Deploy reason (optional)'
+      skip_tests:
+        description: 'Skip tests'
         required: false
-        default: 'Manual trigger'
+        default: 'false'
+        type: boolean
 
-concurrency:
-  group: aistore-deploy
-  cancel-in-progress: true
+env:
+  NODE_VERSION: '20.18.0'
 
 jobs:
-  build-and-deploy:
+  test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    if: ${{ github.event.inputs.skip_tests != 'true' }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set absolute DB path
-        run: echo "DATABASE_URL=file:$(pwd)/db/custom.db" >> "$GITHUB_ENV"
-
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm ci
+      - run: npx vitest run --reporter=verbose 2>&1 | tail -30
 
-      - name: Install dependencies
+  build:
+    runs-on: ubuntu-latest
+    needs: [test]
+    if: always() && (needs.test.result == 'success' || github.event.inputs.skip_tests == 'true')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm ci
+      - run: npx prisma generate --datasource-provider sqlite
+      - run: npm run build
+      - name: Package standalone
         run: |
-          for i in {1..3}; do
-            npm ci && break || {
-              if [ $i -lt 3 ]; then
-                echo "npm ci failed, retrying in 10s... ($i/3)"
-                sleep 10
-              else
-                echo "npm ci failed after 3 attempts"
-                exit 1
-              fi
-            }
-          done
+          cd .next/standalone
+          tar czf ../../aistore-standalone.tar.gz .
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aistore-standalone
+          path: aistore-standalone.tar.gz
+          retention-days: 7
 
-      - run: npx prisma generate
-
-      - name: Push database schema
-        run: npx prisma db push --accept-data-loss 2>&1 || echo 'DB push skipped (schema may already be up to date)'
-
-      - name: Verify DB
-        run: |
-          COUNT=$(node -e "const{PrismaClient}=require('@prisma/client');new PrismaClient().product.count().then(c=>{console.log(c);process.exit(0)})" 2>&1 || echo "0")
-          echo "Products in DB: $COUNT"
-
-      - name: Pre-check bAIcoin daemon
-        run: |
-          echo "Checking bAIcoin daemon health..."
-          HTTP_CODE=$(curl -s -o /tmp/bait.json -w '%{http_code}' --max-time 15 "https://www.mybait.org/api/api/v1/status" 2>/dev/null || echo "000")
-          echo "bAIcoin daemon HTTP: $HTTP_CODE"
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "bAIcoin ONLINE"
-          else
-            echo "bAIcoin offline — deploying in simulated wallet mode"
-          fi
-
-      - name: Set build metadata
-        run: |
-          echo "BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
-          echo "NEXT_PUBLIC_APP_VERSION=1.0.0" >> "$GITHUB_ENV"
-
-      - name: Build Next.js
+  release:
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: always() && (needs.build.result == 'success' || github.event.inputs.skip_tests == 'true')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: aistore-standalone
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0
+          files: aistore-standalone.tar.gz
+          body: |
+            ## AI Store v1.0.0 — Automated Deploy
+            **Commit:** ${{ github.sha }}
+            **Date:** ${{ github.event.head_commit.timestamp }}
+            
+            ### Deploy on HostGator
+            ```bash
+            bash <(curl -sL https://raw.githubusercontent.com/Nexus-HUB57/AI_Store/main/deploy/deploy-on-server.sh)
+            ```
+          draft: false
+          prerelease: false
         env:
-          NODE_ENV: production
-          NEXT_PUBLIC_BASE_PATH: /aistore
-          NEXT_PUBLIC_BASE_URL: https://www.mybait.org/aistore
-          NEXT_PUBLIC_APP_VERSION: "1.0.0"
-        run: npx next build
-
-      - name: Check Standalone output
-        run: |
-          if [ ! -d ".next/standalone" ]; then
-            echo "::error::.next/standalone directory does not exist after build"
-            exit 1
-          fi
-          echo ".next/standalone exists — $(du -sh .next/standalone | cut -f1)"
-
-      - name: Inject SESSION_SECRET into .htaccess
-        env:
-          HG_SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
-        run: |
-          if [ -z "$HG_SESSION_SECRET" ]; then
-            echo "WARNING: SESSION_SECRET secret not set in GitHub — sessions will NOT work"
-            HG_SESSION_SECRET="__SET_SESSION_SECRET_IN_GITHUB_SECRETS__"
-          fi
-          # Replace placeholder OUTSIDE <IfModule> blocks (SetEnv inside IfModule mod_rewrite.c causes Apache 500)
-          sed -i "s/^# __AISTORE_SESSION_SECRET_PLACEHOLDER__$/SetEnv SESSION_SECRET ${HG_SESSION_SECRET}/" hostgator/root-htaccess
-          if grep -q '^SetEnv SESSION_SECRET' hostgator/root-htaccess; then
-            echo "SESSION_SECRET injected into root-htaccess ($(echo $HG_SESSION_SECRET | wc -c) chars)"
-          else
-            echo "WARNING: SESSION_SECRET placeholder not found — appending"
-            sed -i "/^AddHandler cgi-script/a\\SetEnv SESSION_SECRET ${HG_SESSION_SECRET}" hostgator/root-htaccess
-          fi
-
-      - name: Package deploy artifact
-        run: |
-          mkdir -p deploy/standalone
-          cp -r .next/standalone/ deploy/standalone/
-          mkdir -p deploy/standalone/.next/static
-          cp -r .next/static/* deploy/standalone/.next/static/
-          mkdir -p deploy/standalone/public
-          cp -r public/* deploy/standalone/public/ 2>/dev/null || true
-          mkdir -p deploy/standalone/{prisma,db}
-          cp prisma/schema.prisma deploy/standalone/prisma/
-          cp db/custom.db deploy/standalone/db/
-          cp package.json deploy/standalone/
-          cp hostgator/aistore-api.cgi hostgator/aistore-test.cgi hostgator/.htaccess hostgator/setup_aistore.sh hostgator/root-htaccess deploy/
-          chmod +x deploy/aistore-api.cgi deploy/aistore-test.cgi deploy/setup_aistore.sh
-          cd deploy/standalone && tar czf ../aistore-codebase.tar.gz . && cd ../..
-          echo "Tarball size: $(du -sh deploy/aistore-codebase.tar.gz | cut -f1)"
-
-      - name: Resolve HostGator credentials
-        env:
-          HG_CREDS: ${{ secrets.CREDENCIAIS_HOSTGATOR }}
-          HG_FTP_HOST: ${{ secrets.FTP_HOST }}
-          HG_FTP_PORT: ${{ secrets.FTP_PORT }}
-          HG_FTP_USER: ${{ secrets.FTP_USER }}
-          HG_FTP_PASS: ${{ secrets.FTP_PASS }}
-        run: |
-          # ── Strategy 1: Use individual FTP secrets (preferred) ──
-          if [ -n "$HG_FTP_HOST" ] && [ -n "$HG_FTP_USER" ] && [ -n "$HG_FTP_PASS" ]; then
-            HOST="$HG_FTP_HOST"
-            PORT="${HG_FTP_PORT:-21}"
-            USER="$HG_FTP_USER"
-            PASS="$HG_FTP_PASS"
-            echo "Using individual FTP secrets"
-            echo "HOST=$HOST" >> "$GITHUB_ENV"
-            echo "PORT=$PORT" >> "$GITHUB_ENV"
-            echo "USER=$USER" >> "$GITHUB_ENV"
-            echo "PASS=$PASS" >> "$GITHUB_ENV"
-            echo "Resolved: HOST=$HOST PORT=$PORT USER=$USER PASS_LEN=${#PASS}"
-            exit 0
-          fi
-
-          # ── Strategy 2: Parse CREDENCIAIS_HOSTGATOR ──
-          if [ -z "$HG_CREDS" ]; then
-            echo "ERROR: No FTP credentials found (set FTP_HOST/FTP_USER/FTP_PASS or CREDENCIAIS_HOSTGATOR)"
-            exit 1
-          fi
-          echo "Secret found (${#HG_CREDS} chars), parsing..."
-          python3 << 'PYEOF'
-          import os, json, sys, re
-          raw = os.environ['HG_CREDS'].strip()
-          
-          def clean_val(v):
-              if not v: return ""
-              v = re.sub(r'^(Host|Port|User|Pass|Password|Senha|Servidor|Usuario|Usuário|Porta|Login|Username):\s*', '', v, flags=re.I)
-              return v.strip().strip('"').strip("'")
-
-          def parse_creds(raw):
-              try:
-                  c = json.loads(raw)
-                  return {
-                      'host': clean_val(str(c.get('host', c.get('hostname', c.get('servidor', ''))))),
-                      'user': clean_val(str(c.get('user', c.get('username', c.get('usuario', c.get('usuário', '')))))),
-                      'pwd': clean_val(str(c.get('password', c.get('pass', c.get('senha', ''))))),
-                      'port': clean_val(str(c.get('port', c.get('porta', '21'))))
-                  }
-              except:
-                  pass
-
-              kv = {}
-              lines = [l.strip() for l in raw.splitlines() if l.strip()]
-              for line in lines:
-                  for sep in [':', '=']:
-                      if sep in line:
-                          k, v = line.split(sep, 1)
-                          kv[k.strip().lower()] = v.strip()
-                          break
-              
-              mapping = {
-                  'host': ['host', 'hostname', 'servidor', 'ftp'],
-                  'user': ['user', 'username', 'usuário', 'usuario', 'login'],
-                  'pwd': ['password', 'pass', 'senha'],
-                  'port': ['port', 'porta']
-              }
-              
-              result = {}
-              for key, aliases in mapping.items():
-                  for alias in aliases:
-                      if alias in kv:
-                          result[key] = clean_val(kv[alias])
-                          break
-              
-              if result.get('host') and result.get('user') and result.get('pwd'):
-                  if 'port' not in result: result['port'] = '21'
-                  return result
-
-              parts = re.split(r'[\s,;|]+', raw)
-              parts = [p.strip() for p in parts if p.strip()]
-              labels = {'host', 'hostname', 'servidor', 'user', 'username', 'usuário', 'usuario', 'password', 'pass', 'senha', 'port', 'porta', 'ftp', 'login'}
-              clean_parts = [p for p in parts if p.lower().rstrip(':') not in labels]
-              
-              if len(clean_parts) >= 3:
-                  port = '21'
-                  for i, p in enumerate(clean_parts):
-                      if p.isdigit() and int(p) in [21, 22, 2222, 2121]:
-                          port = p
-                          clean_parts.pop(i)
-                          break
-                  
-                  if len(clean_parts) >= 3:
-                      return {'host': clean_parts[0], 'user': clean_parts[1], 'pwd': clean_parts[2], 'port': port}
-
-              return None
-
-          creds = parse_creds(raw)
-          if not creds:
-              print(f"ERROR: Could not parse credentials. Raw length: {len(raw)}")
-              sys.exit(1)
-
-          host, port, user, pwd = creds['host'], creds['port'], creds['user'], creds['pwd']
-          port = re.sub(r'\D', '', str(port)) or '21'
-
-          print(f'Parsed: HOST={host} PORT={port} USER={user} PASS_LEN={len(pwd)}')
-          
-          with open(os.environ['GITHUB_ENV'], 'a') as f:
-              f.write(f'HOST={host}\n')
-              f.write(f'PORT={port}\n')
-              f.write(f'USER={user}\n')
-              f.write(f'PASS={pwd}\n')
-          print('Credentials written to GITHUB_ENV')
-          PYEOF
-
-      - name: Deploy via SSH/SCP (primary)
-        if: success()
-        continue-on-error: true
-        env:
-          HG_SSH_HOST: ${{ secrets.SSH_HOST }}
-          HG_SSH_PORT: ${{ secrets.SSH_PORT }}
-          HG_SSH_USER: ${{ secrets.SSH_USER }}
-          HG_SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-        run: |
-          if [ -z "$HG_SSH_HOST" ] || [ -z "$HG_SSH_USER" ] || [ -z "$HG_SSH_KEY" ]; then
-            echo "SSH secrets not configured, skipping to FTP fallback"
-            exit 1
-          fi
-          echo "SSH deploy: $HG_SSH_USER@$HG_SSH_HOST:${HG_SSH_PORT}"
-          KEYFILE=$(mktemp)
-          echo "$HG_SSH_KEY" > "$KEYFILE"
-          chmod 600 "$KEYFILE"
-          SSH_OPT="-o StrictHostKeyChecking=no -o ConnectTimeout=15 -p ${HG_SSH_PORT:-22} -i $KEYFILE"
-          set -e
-          # Upload files
-          scp $SSH_OPT deploy/aistore-api.cgi "${HG_SSH_USER}@${HG_SSH_HOST}:~/public_html/aistore-api.cgi"
-          scp $SSH_OPT deploy/aistore-test.cgi "${HG_SSH_USER}@${HG_SSH_HOST}:~/public_html/aistore-test.cgi"
-          scp $SSH_OPT deploy/.htaccess "${HG_SSH_USER}@${HG_SSH_HOST}:~/public_html/aistore/.htaccess"
-          scp $SSH_OPT deploy/setup_aistore.sh "${HG_SSH_USER}@${HG_SSH_HOST}:~/public_html/aistore/setup_aistore.sh"
-          scp $SSH_OPT deploy/root-htaccess "${HG_SSH_USER}@${HG_SSH_HOST}:~/public_html/.htaccess"
-          scp $SSH_OPT deploy/aistore-codebase.tar.gz "${HG_SSH_USER}@${HG_SSH_HOST}:~/public_html/aistore-codebase.tar.gz"
-          # Set permissions
-          ssh $SSH_OPT "${HG_SSH_USER}@${HG_SSH_HOST}" "chmod 755 ~/public_html/aistore-api.cgi ~/public_html/aistore-test.cgi ~/public_html/aistore/setup_aistore.sh"
-          echo "SSH DEPLOY COMPLETE"
-          rm -f "$KEYFILE"
-
-      - name: Deploy to HostGator (FTP fallback)
-        if: failure()
-        continue-on-error: true
-        env:
-          HG_HOST: ${{ env.HOST }}
-          HG_PORT: ${{ env.PORT }}
-          HG_USER: ${{ env.USER }}
-          HG_PASS: ${{ env.PASS }}
-        run: |
-          pip install paramiko 2>/dev/null
-          python3 << 'PYEOF'
-          import os, sys, stat
-          import ftplib
-          import socket
-
-          host = os.environ['HG_HOST']
-          port = int(os.environ['PORT'])
-          user = os.environ['HG_USER']
-          pwd = os.environ['HG_PASS']
-
-          def try_sftp(host, port_ssh, user, pwd, timeout=20):
-              """Try SFTP (SSH) connection."""
-              try:
-                  import paramiko
-                  ssh = paramiko.SSHClient()
-                  ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                  ssh.connect(host, port=port_ssh, username=user, password=pwd, timeout=timeout)
-                  sftp = ssh.open_sftp()
-                  print(f'SFTP connected to {host}:{port_ssh} as {user}')
-                  return sftp, ssh
-              except Exception as e:
-                  print(f'SFTP on port {port_ssh} failed: {e}')
-                  return None, None
-
-          def try_ftp_tls(host, port, user, pwd, timeout=20):
-              """Try FTP-TLS connection."""
-              try:
-                  ftps = ftplib.FTP_TLS()
-                  ftps.connect(host, port, timeout=timeout)
-                  ftps.login(user, pwd)
-                  ftps.prot_p()
-                  print(f'FTP-TLS connected to {host}:{port} as {user}')
-                  return ftps
-              except Exception as e:
-                  print(f'FTP-TLS failed: {e}')
-                  return None
-
-          def try_ftp_plain(host, port, user, pwd, timeout=20):
-              """Try plain FTP connection."""
-              try:
-                  ftp = ftplib.FTP()
-                  ftp.connect(host, port, timeout=timeout)
-                  ftp.login(user, pwd)
-                  print(f'FTP-plain connected to {host}:{port} as {user}')
-                  return ftp
-              except Exception as e:
-                  print(f'FTP-plain failed: {e}')
-                  return None
-
-          # Upload files to remote path
-          def upload_file_sftp(sftp, local, remote):
-              sftp.put(local, remote)
-              print(f'  SFTP: {local} -> {remote}')
-
-          def upload_file_ftp(ftp, local, remote):
-              with open(local, 'rb') as f:
-                  ftp.storbinary(f'STOR {remote}', f)
-              print(f'  FTP: {local} -> {remote}')
-
-          # Ensure remote directory exists
-          def ensure_dir_sftp(sftp, path):
-              try:
-                  sftp.stat(path)
-              except FileNotFoundError:
-                  parts = path.split('/')
-                  for i in range(2, len(parts) + 1):
-                      p = '/'.join(parts[:i])
-                      try:
-                          sftp.stat(p)
-                      except FileNotFoundError:
-                          try:
-                              sftp.mkdir(p)
-                          except:
-                              pass
-
-          def ensure_dir_ftp(ftp, path):
-              try:
-                  ftp.cwd(path)
-              except:
-                  parts = path.split('/')
-                  for i in range(2, len(parts) + 1):
-                      p = '/'.join(parts[:i])
-                      try:
-                          ftp.cwd(p)
-                      except:
-                          try:
-                              ftp.mkd(p)
-                          except:
-                              pass
-              ftp.cwd('/')
-
-          # ── Try connection methods in order ──
-          conn = None
-          conn_type = None
-          sftp_ssh = None
-
-          # 1. Try SFTP on port 22
-          sftp, ssh = try_sftp(host, 22, user, pwd)
-          if sftp:
-              conn, conn_type = sftp, 'sftp'
-              sftp_ssh = ssh
-          else:
-              # 2. Try SFTP on port 2222 (HostGator alternate)
-              sftp, ssh = try_sftp(host, 2222, user, pwd)
-              if sftp:
-                  conn, conn_type = sftp, 'sftp'
-                  sftp_ssh = ssh
-              else:
-                  # 3. Try FTP-TLS
-                  conn = try_ftp_tls(host, port, user, pwd)
-                  if conn:
-                      conn_type = 'ftps'
-                  else:
-                      # 4. Try plain FTP
-                      conn = try_ftp_plain(host, port, user, pwd)
-                      if conn:
-                          conn_type = 'ftp'
-
-          if not conn:
-              print('ERROR: All connection methods failed (SFTP:22, SFTP:2222, FTP-TLS, FTP)')
-              sys.exit(1)
-
-          print(f'Using {conn_type} for deployment')
-
-          # ── Upload files ──
-          files = [
-              ('deploy/aistore-api.cgi', 'public_html/aistore-api.cgi'),
-              ('deploy/aistore-test.cgi', 'public_html/aistore-test.cgi'),
-          ]
-          config_files = [
-              ('deploy/.htaccess', 'public_html/aistore/.htaccess'),
-              ('deploy/setup_aistore.sh', 'public_html/aistore/setup_aistore.sh'),
-          ]
-          root_htaccess = ('deploy/root-htaccess', 'public_html/.htaccess')
-          tarball = ('deploy/aistore-codebase.tar.gz', 'public_html/aistore-codebase.tar.gz')
-
-          try:
-              if conn_type == 'sftp':
-                  ensure_dir_sftp(conn, 'public_html/aistore')
-                  for local, remote in files:
-                      upload_file_sftp(conn, local, remote)
-                      conn.chmod(remote, 0o755)
-                  for local, remote in config_files:
-                      upload_file_sftp(conn, local, remote)
-                  # Atomic root .htaccess replace
-                  upload_file_sftp(conn, root_htaccess[0], root_htaccess[1] + '.aistore-new')
-                  try:
-                      old = root_htaccess[1] + '.bak.aistore'
-                      try: conn.remove(old)
-                      except: pass
-                      conn.rename(root_htaccess[1], old)
-                  except: pass
-                  conn.rename(root_htaccess[1] + '.aistore-new', root_htaccess[1])
-                  # Tarball
-                  upload_file_sftp(conn, tarball[0], tarball[1])
-                  print(f'SFTP upload complete')
-              else:
-                  # FTP / FTP-TLS
-                  ensure_dir_ftp(conn, 'public_html/aistore')
-                  for local, remote in files:
-                      upload_file_ftp(conn, local, remote)
-                      try: conn.voidcmd(f'SITE CHMOD 755 {remote}')
-                      except: pass
-                  for local, remote in config_files:
-                      upload_file_ftp(conn, local, remote)
-                      try: conn.voidcmd(f'SITE CHMOD 644 {remote}')
-                      except: pass
-                  with open(root_htaccess[0], 'rb') as f:
-                      conn.storbinary(f'STOR {root_htaccess[1]}.aistore-new', f)
-                  try:
-                      try: conn.rename(root_htaccess[1], root_htaccess[1] + '.bak.aistore')
-                      except: pass
-                      conn.rename(root_htaccess[1] + '.aistore-new', root_htaccess[1])
-                  except: pass
-                  with open(tarball[0], 'rb') as f:
-                      conn.storbinary(f'STOR {tarball[1]}', f)
-                  print(f'FTP upload complete')
-                  conn.quit()
-
-              print('ALL FILES DEPLOYED SUCCESSFULLY')
-          except Exception as e:
-              print(f'Upload error: {e}', file=sys.stderr)
-              sys.exit(1)
-          finally:
-              if sftp_ssh:
-                  try: sftp_ssh.close()
-                  except: pass
-          PYEOF
-
-      - name: Upload tarball to GitHub Release
-        if: ${{ success() }}
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="v$(node -p "require('./package.json').version")"
-          echo "Tag: $TAG"
-          # Delete existing asset if present
-          ASSET_ID=$(curl -sL -H "Authorization: token $GH_TOKEN" \
-            "https://api.github.com/repos/Nexus-HUB57/AI_Store/releases/tags/$TAG" \
-            | python3 -c "import sys,json; assets=json.load(sys.stdin).get('assets',[]); print(assets[0]['id'] if assets else '')" 2>/dev/null || echo "")
-          if [ -n "$ASSET_ID" ]; then
-            curl -sL -X DELETE -H "Authorization: token $GH_TOKEN" \
-              "https://api.github.com/repos/Nexus-HUB57/AI_Store/releases/assets/$ASSET_ID" || true
-            echo "Deleted old asset $ASSET_ID"
-          fi
-          # Upload new tarball
-          curl -sL --data-binary "@deploy/aistore-codebase.tar.gz" \
-            -H "Authorization: token $GH_TOKEN" \
-            -H "Content-Type: application/octet-stream" \
-            "https://uploads.github.com/repos/Nexus-HUB57/AI_Store/releases/$TAG/assets?name=aistore-codebase.tar.gz&label=AI%20Store%20$TAG%20Tarball" \
-            | python3 -c "import sys,json; r=json.load(sys.stdin); print(f'Uploaded: {r.get(\"browser_download_url\", \"error\")}')"
-          echo "Tarball available at: https://github.com/Nexus-HUB57/AI_Store/releases/download/$TAG/aistore-codebase.tar.gz"
-
-      - name: Run smoke test
-        if: always()
-        run: |
-          echo "=== Deploy Verification ==="
-          echo "Waiting 30s for first request (CGI cold start)..."
-          sleep 30
-          for attempt in 1 2 3; do
-            echo "Attempt $attempt/3..."
-            HTTP_CODE=$(curl -s -o /tmp/verify.json -w '%{http_code}' --max-time 120 'https://www.mybait.org/aistore/api/version' 2>/dev/null || echo "000")
-            echo "AI Store /api/version: HTTP $HTTP_CODE"
-            if [ -s /tmp/verify.json ]; then
-              cat /tmp/verify.json | python3 -m json.tool 2>/dev/null || cat /tmp/verify.json
-            fi
-            if [ "$HTTP_CODE" = "200" ]; then
-              echo "DEPLOY SUCCESSFUL"
-              break
-            fi
-            if [ $attempt -lt 3 ]; then
-              echo "Retrying in 15s..."
-              sleep 15
-            fi
-          done
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "WARNING: All attempts returned HTTP $HTTP_CODE"
-          fi
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
