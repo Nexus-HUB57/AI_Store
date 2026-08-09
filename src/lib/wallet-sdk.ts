@@ -1,5 +1,5 @@
 /**
- * b'AI'tcoin Wallet SDK — Phase 2 (Hybrid: Real API + Simulation Fallback)
+ * b'AI'tcoin Wallet SDK — Phase 3 (Daemon-Native: Real On-Chain + AI Store Integration)
  * 
  * Connects to the real b'AI'tcoin daemon API when available.
  * Falls back to simulated mode for development and when daemon is offline.
@@ -7,7 +7,8 @@
  * Server-side: calls http://127.0.0.1:18445/api/v1/ (local daemon)
  * Client-side: uses simulation (browser can't call internal ports)
  * 
- * BAIT denomination: 1 BAIT = 100 sats
+ * BAIT denomination: 1 BAIT = 100,000,000 s'AI'toshis (8 decimals, Bitcoin-like)
+ * AI Store display: prices shown in s'AI'toshis (daemon native unit)
  */
 
 import {
@@ -16,7 +17,13 @@ import {
   getBaitcoinTokenInfo,
   transferBait,
   getBaitcoinStatus,
+  purchaseMarketplaceService,
+  getBaitcoinMarketplaceStats,
 } from './baitcoin-api'
+
+// ─── Denomination Constants ───
+// Daemon uses 8 decimals (like Bitcoin): 1 BAIT = 100,000,000 s'AI'toshis
+const SAITOSHIS_PER_BAIT = 100_000_000
 
 // ─── Pure Utility Functions ───
 
@@ -25,21 +32,25 @@ export function formatSats(sats: number): string {
   return sats.toLocaleString('en-US')
 }
 
-/** Convert satoshis to BAIT (1 BAIT = 100 sats) */
-export function satsToBAIT(sats: number): number {
-  return Math.floor(sats / 100)
+/** Convert s'AI'toshis to BAIT (8 decimals) */
+export function saitsToBAIT(saits: number): number {
+  return saits / SAITOSHIS_PER_BAIT
 }
 
-/** Convert BAIT to satoshis */
-export function baitToSats(bait: number): number {
-  return bait * 100
+/** Convert BAIT to s'AI'toshis */
+export function baitToSaitoshis(bait: number): number {
+  return Math.floor(bait * SAITOSHIS_PER_BAIT)
 }
+
+/** @deprecated Use saitsToBAIT — legacy alias for compatibility */
+export const satsToBAIT = saitsToBAIT
+/** @deprecated Use baitToSaitoshis — legacy alias for compatibility */
+export const baitToSats = baitToSaitoshis
 
 /** Validate b'AI'tcoin address format */
 export function validateBaitAddress(address: string): boolean {
   if (!address || address.length < 3) return false
   if (/\s/.test(address)) return false
-  // Accepted formats: bAI_*, 0x*, @system
   return /^(bAI_[\w-]+|0x[a-fA-F0-9]+|@\w+(-\w+)*)$/.test(address)
 }
 
@@ -302,7 +313,7 @@ export class BAITWalletSDK {
     if (realInfo) {
       return {
         ...realInfo,
-        baitPerSat: 100,
+        saitoshisPerBait: SAITOSHIS_PER_BAIT,
         avgFee: 1,
       }
     }
@@ -310,12 +321,48 @@ export class BAITWalletSDK {
     // Fallback static data
     return {
       network: this.network,
-      baitPerSat: 100,
+      saitoshisPerBait: SAITOSHIS_PER_BAIT,
       blockHeight: 1847293,
       totalSupply: '21,000,000 BAIT',
       circulating: '14,302,891 BAIT',
       avgFee: 1,
       daemonOnline: false,
+    }
+  }
+
+  /**
+   * Get AI Store marketplace stats from the daemon.
+   * Returns listings count, active products, total volume.
+   */
+  async getMarketplaceInfo(): Promise<Record<string, unknown>> {
+    try {
+      const stats = await getBaitcoinMarketplaceStats()
+      return { ...stats, daemonOnline: true }
+    } catch {
+      return { daemonOnline: false, listings: 0, active: 0 }
+    }
+  }
+
+  /**
+   * Purchase a product from the AI Store via the daemon marketplace.
+   * This is the real on-chain purchase flow.
+   */
+  async purchaseOnChain(params: {
+    listingId: string
+    buyerAgent: string
+  }): Promise<{ success: boolean; purchaseId?: string; error?: string }> {
+    try {
+      const result = await purchaseMarketplaceService({
+        listing_id: params.listingId,
+        buyer: params.buyerAgent,
+      }) as Record<string, unknown>
+      // Daemon returns { purchase_id: 'pur_...' } on success
+      if (result && typeof result === 'object' && 'purchase_id' in result) {
+        return { success: true, purchaseId: result.purchase_id as string }
+      }
+      return { success: false, error: 'No purchase_id returned' }
+    } catch (err) {
+      return { success: false, error: String(err) }
     }
   }
 

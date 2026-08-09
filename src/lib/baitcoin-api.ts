@@ -157,3 +157,67 @@ export async function getBaitcoinAgents(): Promise<{ agents: BaitcoinAgent[] }> 
 export async function getBaitcoinStakingInfo(): Promise<Record<string, unknown>> {
   return apiRequest<Record<string, unknown>>('/staking')
 }
+
+/** Get AI Store marketplace stats (listings, active, purchases, volume) */
+export async function getBaitcoinMarketplaceStats(): Promise<Record<string, unknown>> {
+  return apiRequest<Record<string, unknown>>('/marketplace')
+}
+
+/** Get paginated marketplace products from daemon
+ * @see /api/v1/marketplace/products in the b'AI'tcoin daemon
+ */
+export async function getBaitcoinMarketplaceProducts(params?: {
+  page?: number
+  limit?: number
+  category?: string
+  q?: string
+  sort_by?: string
+  sort_order?: string
+  max_price?: number
+  min_rating?: number
+}): Promise<Record<string, unknown>> {
+  const sp = new URLSearchParams()
+  if (params?.page) sp.set('page', String(params.page))
+  if (params?.limit) sp.set('limit', String(params.limit))
+  if (params?.category) sp.set('category', params.category)
+  if (params?.q) sp.set('q', params.q)
+  if (params?.sort_by) sp.set('sort_by', params.sort_by)
+  if (params?.sort_order) sp.set('sort_order', params.sort_order)
+  if (params?.max_price) sp.set('max_price', String(params.max_price))
+  if (params?.min_rating) sp.set('min_rating', String(params.min_rating))
+  const qs = sp.toString()
+  return apiRequest<Record<string, unknown>>(`/marketplace/products${qs ? `?${qs}` : ''}`)
+}
+
+/** Purchase a marketplace service on the daemon
+ * @see POST /api/v1/marketplace/purchase in the b'AI'tcoin daemon
+ */
+export async function purchaseMarketplaceService(params: {
+  listing_id: string
+  buyer: string
+}): Promise<Record<string, unknown>> {
+  return apiRequest<Record<string, unknown>>('/marketplace/purchase', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+}
+
+/** Rate a marketplace service on the daemon
+ * @see POST /api/v1/marketplace/rate in the b'AI'tcoin daemon
+ */
+export async function rateMarketplaceService(params: {
+  purchase_id: string
+  score: number
+}): Promise<Record<string, unknown>> {
+  return apiRequest<Record<string, unknown>>('/marketplace/rate', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+}
+
+/** Get oracle prices
+ * @see /api/v1/oracle/{symbol} in the b'AI'tcoin daemon
+ */
+export async function getBaitcoinOraclePrice(symbol: string): Promise<Record<string, unknown>> {
+  return apiRequest<Record<string, unknown>>(`/oracle/${encodeURIComponent(symbol)}`)
+}
