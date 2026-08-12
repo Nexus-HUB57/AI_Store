@@ -108,31 +108,50 @@ jobs:
           name: aistore-standalone
 
       - name: Setup SSH (HostGator)
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_KEY:  ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           set -e
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_deploy
+          SSH_HOST="$(printf '%s' "$SSH_HOST" | tr -d '\r\n\t \"'\'')"
+          SSH_PORT="$(printf '%s' "$SSH_PORT" | tr -d '\r\n\t \"'\'')"
+          [ -z "$SSH_HOST" ] && { echo '::error::SSH_HOST vazio'; exit 1; }
+          [ -z "$SSH_PORT" ] && SSH_PORT=22
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
           chmod 600 ~/.ssh/id_deploy
-          ssh-keyscan -p ${{ secrets.SSH_PORT }} -H ${{ secrets.SSH_HOST }} > ~/.ssh/known_hosts 2>/dev/null
+          if ssh-keyscan -T 8 -p "$SSH_PORT" -H "$SSH_HOST" > ~/.ssh/known_hosts 2>/tmp/keyscan.err; then
+              echo "known_hosts populado ($(wc -l < ~/.ssh/known_hosts) linhas)"
+          else
+              echo "::warning::ssh-keyscan falhou; usando accept-new"
+              cat /tmp/keyscan.err || true
+              : > ~/.ssh/known_hosts
+          fi
           chmod 644 ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<CFG
+          Host deploy-target
+            HostName $SSH_HOST
+            Port $SSH_PORT
+            User ${{ secrets.SSH_USER }}
+            IdentityFile ~/.ssh/id_deploy
+            StrictHostKeyChecking accept-new
+            UserKnownHostsFile ~/.ssh/known_hosts
+            ServerAliveInterval 30
+            ConnectTimeout 15
+          CFG
+          chmod 600 ~/.ssh/config
+          ssh -o BatchMode=yes -o ConnectTimeout=15 deploy-target "echo remote-ok && hostname && whoami" || echo "::warning::connect probe failed (nao fatal)"
 
       - name: Upload tarball to HostGator
         run: |
           set -e
-          scp -i ~/.ssh/id_deploy \
-              -P ${{ secrets.SSH_PORT }} \
-              -o StrictHostKeyChecking=yes \
-              aistore-standalone.tar.gz \
-              ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:~/public_html/aistore-codebase.tar.gz
+          scp aistore-standalone.tar.gz deploy-target:~/public_html/aistore-codebase.tar.gz
 
       - name: Extract + restart on HostGator
         run: |
           set -e
-          ssh -i ~/.ssh/id_deploy \
-              -p ${{ secrets.SSH_PORT }} \
-              -o StrictHostKeyChecking=yes \
-              ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
-              "bash ~/aistore-api/deploy-manual.sh || bash ~/public_html/deploy-manual.sh"
+          ssh deploy-target "bash ~/aistore-api/deploy-manual.sh || bash ~/public_html/deploy-manual.sh"
 
       - name: Verify HostGator deploy
         run: |
