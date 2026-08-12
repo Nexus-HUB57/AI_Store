@@ -20,21 +20,24 @@ describe('b\'AI\'tcoin Wallet SDK', () => {
     })
   })
 
+  // Denomination convention: 1 BAIT = 100_000_000 saitoshis (Bitcoin-style, 8 decimals)
+  // Aligned with SDK constant SAITOSHIS_PER_BAIT in src/lib/wallet-sdk.ts
   describe('satsToBAIT', () => {
-    it('converts 100 sats to 1 BAIT', () => {
-      expect(satsToBAIT(100)).toBe(1)
+    it('converts 100_000_000 sats to 1 BAIT', () => {
+      expect(satsToBAIT(100_000_000)).toBe(1)
     })
 
-    it('converts 5000 sats to 50 BAIT', () => {
-      expect(satsToBAIT(5000)).toBe(50)
+    it('converts 5_000_000_000 sats to 50 BAIT', () => {
+      expect(satsToBAIT(5_000_000_000)).toBe(50)
     })
 
-    it('converts 10000 sats to 100 BAIT', () => {
-      expect(satsToBAIT(10000)).toBe(100)
+    it('converts 10_000_000_000 sats to 100 BAIT', () => {
+      expect(satsToBAIT(10_000_000_000)).toBe(100)
     })
 
-    it('rounds down fractional BAIT', () => {
-      expect(satsToBAIT(150)).toBe(1)
+    it('returns fractional BAIT for sub-unit amounts', () => {
+      // 150 sats = 0.0000015 BAIT
+      expect(satsToBAIT(150)).toBeCloseTo(0.0000015, 10)
     })
 
     it('returns 0 for 0 sats', () => {
@@ -43,16 +46,16 @@ describe('b\'AI\'tcoin Wallet SDK', () => {
   })
 
   describe('baitToSats', () => {
-    it('converts 1 BAIT to 100 sats', () => {
-      expect(baitToSats(1)).toBe(100)
+    it('converts 1 BAIT to 100_000_000 sats', () => {
+      expect(baitToSats(1)).toBe(100_000_000)
     })
 
-    it('converts 50 BAIT to 5000 sats', () => {
-      expect(baitToSats(50)).toBe(5000)
+    it('converts 50 BAIT to 5_000_000_000 sats', () => {
+      expect(baitToSats(50)).toBe(5_000_000_000)
     })
 
-    it('converts 100 BAIT to 10000 sats', () => {
-      expect(baitToSats(100)).toBe(10000)
+    it('converts 100 BAIT to 10_000_000_000 sats', () => {
+      expect(baitToSats(100)).toBe(10_000_000_000)
     })
 
     it('returns 0 for 0 BAIT', () => {
@@ -61,10 +64,10 @@ describe('b\'AI\'tcoin Wallet SDK', () => {
   })
 
   describe('satsToBAIT / baitToSats roundtrip', () => {
-    it('is reversible for even amounts', () => {
-      expect(baitToSats(satsToBAIT(5000))).toBe(5000)
-      expect(baitToSats(satsToBAIT(2000))).toBe(2000)
-      expect(baitToSats(satsToBAIT(10000))).toBe(10000)
+    it('is reversible for exact BAIT-boundary amounts', () => {
+      expect(baitToSats(satsToBAIT(100_000_000))).toBe(100_000_000)
+      expect(baitToSats(satsToBAIT(200_000_000))).toBe(200_000_000)
+      expect(baitToSats(satsToBAIT(1_000_000_000))).toBe(1_000_000_000)
     })
   })
 
