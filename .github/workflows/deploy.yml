@@ -111,27 +111,27 @@ jobs:
         run: |
           set -e
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          echo "${{ secrets.HOSTGATOR_SSH_KEY }}" > ~/.ssh/id_deploy
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_deploy
           chmod 600 ~/.ssh/id_deploy
-          echo "${{ secrets.HOSTGATOR_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          ssh-keyscan -p ${{ secrets.SSH_PORT }} -H ${{ secrets.SSH_HOST }} > ~/.ssh/known_hosts 2>/dev/null
           chmod 644 ~/.ssh/known_hosts
 
       - name: Upload tarball to HostGator
         run: |
           set -e
           scp -i ~/.ssh/id_deploy \
-              -P ${{ secrets.HOSTGATOR_SSH_PORT }} \
+              -P ${{ secrets.SSH_PORT }} \
               -o StrictHostKeyChecking=yes \
               aistore-standalone.tar.gz \
-              ${{ secrets.HOSTGATOR_SSH_USER }}@${{ secrets.HOSTGATOR_SSH_HOST }}:~/public_html/aistore-codebase.tar.gz
+              ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:~/public_html/aistore-codebase.tar.gz
 
       - name: Extract + restart on HostGator
         run: |
           set -e
           ssh -i ~/.ssh/id_deploy \
-              -p ${{ secrets.HOSTGATOR_SSH_PORT }} \
+              -p ${{ secrets.SSH_PORT }} \
               -o StrictHostKeyChecking=yes \
-              ${{ secrets.HOSTGATOR_SSH_USER }}@${{ secrets.HOSTGATOR_SSH_HOST }} \
+              ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
               "bash ~/aistore-api/deploy-manual.sh || bash ~/public_html/deploy-manual.sh"
 
       - name: Verify HostGator deploy
