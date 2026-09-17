@@ -32,7 +32,8 @@
     "mcp:test": "bun run mcp/tests/e2e.mjs",
     "mcp:list": "ls mcp/src/servers",
     "mcp:pack": "node scripts/pack-aipkg.mjs",
-    "mcp:health": "curl -s http://localhost:3000/api/mcp/health"
+    "mcp:health": "curl -s http://localhost:3000/api/mcp/health",
+    "mcp:validate": "node scripts/validate-mcp-catalog.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.11.1",
