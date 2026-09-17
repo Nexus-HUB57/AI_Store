@@ -1,6 +1,17 @@
-/// Prisma Schema Reference — MCP Ecosystem Only
-/// This file contains only the 6 MCP models for reference and documentation.
-/// These models are appended to the main schema.prisma at build time.
+// ============================================================================
+// MCP Catalog — Prisma schema extension
+//
+// Drop-in: copy the `Mcp*` models below into the main schema.prisma
+// (or import this file via prisma multi-schema).
+//
+// Tables:
+//   - McpPackage        : catalog entry for an MCP server (matches .aipkg manifest)
+//   - McpInstall        : per-agent install record
+//   - McpCall           : telemetry — every tools/call
+//   - McpTool           : discovered tools of an installed MCP
+//   - McpSelfHealEvent  : restart / backoff events from the self-heal loop
+//   - McpRagFeedback    : signals feeding the RAG upgrader
+// ============================================================================
 
 generator client {
   provider = "prisma-client-js"
@@ -11,59 +22,66 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// MCP Ecosystem — distributed as .aipkg packages (7th catalog segment)
+// (Existing models: Product, Agent, Review, Transaction, ReferralReward)
+// ...
+
+// -------------------- MCP Ecosystem --------------------
 
 model McpPackage {
-  id              String   @id @default(cuid())
-  name            String   @unique
-  slug            String   @unique @default("")
-  version         String   @default("1.0.0")
-  description     String   @default("")
-  authorAgent     String   @default("@nexus-genesis")
-  category        String   @default("utility")
-  tags            String   @default("[]")
-  repoUrl         String   @default("")
-  manifestJson    String   @default("{}")
-  toolsJson       String   @default("[]")
-  entrypoint      String   @default("index.ts")
-  runtime         String   @default("node")
-  permissions     String   @default("{}")
-  envVars         String   @default("{}")
-  priceSats       Int      @default(0)
-  downloads       Int      @default(0)
-  rating          Float    @default(4.5)
-  pulsarEnergy    Float    @default(95.0)
-  fitnessScore    Float    @default(85.0)
-  verified        Boolean  @default(false)
-  featured        Boolean  @default(false)
-  deprecated      Boolean  @default(false)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String   @id @default(cuid())
+  name           String   @unique
+  version        String
+  displayName    String
+  description    String
+  category       String
+  tags           String   @default("[]")  // JSON array
+  iconEmoji      String   @default("🧩")
+  authorAgent    String
+  repoUrl        String   @default("")
+  homepage       String   @default("")
+  license        String   @default("MIT")
+  transport      String   @default("stdio")
+  command        String
+  args           String   @default("[]")  // JSON array
+  envSchema      String   @default("{}")  // JSON: name -> description
+  capabilities   String   @default("{\"tools\":true,\"resources\":false,\"prompts\":false,\"logging\":true,\"sampling\":false}")
+  manifestJson   String   // raw .aipkg manifest
+  toolsJson      String   @default("[]")  // pre-declared tool list
+  pricingModel   String   @default("free") // free | per-call | subscription
+  priceSats      Int      @default(0)
+  pricePerCallSats Int    @default(0)
+  downloads      Int      @default(0)
+  rating         Float    @default(4.5)
+  pulsarEnergy   Float    @default(95.0)
+  fitnessScore   Float    @default(85.0)
+  verified       Boolean  @default(false)
+  featured       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  installs  McpInstall[]
-  tools     McpTool[]
-  calls     McpCall[]
+  installs   McpInstall[]
+  tools      McpTool[]
+  calls      McpCall[]
+  ragSignals McpRagFeedback[]
 
   @@index([category])
   @@index([authorAgent])
-  @@index([verified])
 }
 
 model McpInstall {
   id          String   @id @default(cuid())
-  agentId     String
   packageId   String
-  version     String   @default("1.0.0")
-  status      String   @default("active")
-  configJson  String   @default("{}")
+  agentId     String?  // null = system install (for all agents)
+  version     String
+  enabled     Boolean  @default(true)
+  envOverrides String  @default("{}")  // JSON
   installedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  mcpPackage McpPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  package McpPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
 
+  @@unique([packageId, agentId])
   @@index([agentId])
-  @@index([packageId])
-  @@unique([agentId, packageId])
 }
 
 model McpTool {
@@ -71,76 +89,63 @@ model McpTool {
   packageId   String
   name        String
   description String   @default("")
-  inputSchema String   @default("{}")
-  outputSchema String  @default("{}")
-  permissions String   @default("[]")
+  category    String   @default("")
+  inputSchema String   @default("{}")  // JSON
   callCount   Int      @default(0)
-  avgLatencyMs Int     @default(0)
-  errorRate   Float    @default(0.0)
-  createdAt   DateTime @default(now())
+  okCount     Int      @default(0)
+  errCount    Int      @default(0)
+  avgDurationMs Int    @default(0)
+  discoveredAt DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  mcpPackage McpPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
-  calls      McpCall[]
+  package McpPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
 
-  @@index([packageId])
-  @@index([name])
+  @@unique([packageId, name])
+  @@index([category])
 }
 
 model McpCall {
   id          String   @id @default(cuid())
-  toolId      String
   packageId   String
-  callerAgent String
-  inputJson   String   @default("{}")
-  outputJson  String   @default("{}")
-  status      String   @default("success")
-  latencyMs   Int      @default(0)
-  error       String   @default("")
-  createdAt   DateTime @default(now())
+  toolName    String
+  agentId     String?
+  ok          Boolean
+  errorMsg    String   @default("")
+  durationMs  Int
+  payloadHash String   @default("")  // hash of arguments (no raw payload)
+  ts          DateTime @default(now())
 
-  mcpPackage McpPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
-  mcpTool    McpTool   @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  package McpPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
 
-  @@index([toolId])
-  @@index([packageId])
-  @@index([callerAgent])
-  @@index([createdAt])
+  @@index([packageId, ts])
+  @@index([toolName])
+  @@index([agentId])
 }
 
 model McpSelfHealEvent {
-  id          String   @id @default(cuid())
-  packageId   String?
-  toolId      String?
-  eventType   String
-  severity    String   @default("warning")
-  message     String
-  contextJson String   @default("{}")
-  resolution  String   @default("")
-  resolved    Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  resolvedAt  DateTime?
+  id        String   @id @default(cuid())
+  packageName String
+  attempt   Int
+  backoffMs Int
+  reason    String   @default("")
+  succeeded Boolean  @default(false)
+  ts        DateTime @default(now())
 
-  @@index([packageId])
-  @@index([eventType])
-  @@index([resolved])
-  @@index([createdAt])
+  @@index([packageName, ts])
 }
 
 model McpRagFeedback {
-  id          String   @id @default(cuid())
-  packageId   String?
-  toolId      String?
-  agentId     String
-  query       String
-  documentId  String   @default("")
-  relevance   Float    @default(0.0)
-  feedback    String   @default("")
-  rating      Int      @default(0)
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  packageId  String
+  toolName   String
+  signal     String   // "failure" | "low_rating" | "missing_capability" | "drift"
+  weight     Float    @default(1.0)
+  context    String   @default("{}")  // JSON
+  resolved   Boolean  @default(false)
+  ts         DateTime @default(now())
 
-  @@index([packageId])
-  @@index([agentId])
-  @@index([documentId])
-  @@index([createdAt])
+  package McpPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  @@index([packageId, signal])
+  @@index([resolved])
 }

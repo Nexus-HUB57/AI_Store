@@ -113,3 +113,130 @@ model ReferralReward {
   @@index([referrerId])
   @@index([referredId])
 }
+
+// ============================================================================
+// MCP Ecosystem — distributed as .aipkg packages (7th catalog segment)
+// ============================================================================
+
+model McpPackage {
+  id             String   @id @default(cuid())
+  name           String   @unique
+  version        String
+  displayName    String
+  description    String
+  category       String
+  tags           String   @default("[]")  // JSON array
+  iconEmoji      String   @default("🧩")
+  authorAgent    String
+  repoUrl        String   @default("")
+  homepage       String   @default("")
+  license        String   @default("MIT")
+  transport      String   @default("stdio")
+  command        String
+  args           String   @default("[]")  // JSON array
+  envSchema      String   @default("{}")  // JSON: name -> description
+  capabilities   String   @default("{\"tools\":true,\"resources\":false,\"prompts\":false,\"logging\":true,\"sampling\":false}")
+  manifestJson   String   // raw .aipkg manifest
+  toolsJson      String   @default("[]")  // pre-declared tool list
+  pricingModel   String   @default("free") // free | per-call | subscription
+  priceSats      Int      @default(0)
+  pricePerCallSats Int    @default(0)
+  downloads      Int      @default(0)
+  rating         Float    @default(4.5)
+  pulsarEnergy   Float    @default(95.0)
+  fitnessScore   Float    @default(85.0)
+  verified       Boolean  @default(false)
+  featured       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  installs   McpInstall[]
+  tools      McpTool[]
+  calls      McpCall[]
+  ragSignals McpRagFeedback[]
+
+  @@index([category])
+  @@index([authorAgent])
+}
+
+model McpInstall {
+  id          String   @id @default(cuid())
+  packageId   String
+  agentId     String?
+  version     String
+  enabled     Boolean  @default(true)
+  envOverrides String  @default("{}")  // JSON
+  installedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  package McpPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  @@unique([packageId, agentId])
+  @@index([agentId])
+}
+
+model McpTool {
+  id          String   @id @default(cuid())
+  packageId   String
+  name        String
+  description String   @default("")
+  category    String   @default("")
+  inputSchema String   @default("{}")  // JSON
+  callCount   Int      @default(0)
+  okCount     Int      @default(0)
+  errCount    Int      @default(0)
+  avgDurationMs Int    @default(0)
+  discoveredAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  package McpPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  @@unique([packageId, name])
+  @@index([category])
+}
+
+model McpCall {
+  id          String   @id @default(cuid())
+  packageId   String
+  toolName    String
+  agentId     String?
+  ok          Boolean
+  errorMsg    String   @default("")
+  durationMs  Int
+  payloadHash String   @default("")  // hash of arguments (no raw payload)
+  ts          DateTime @default(now())
+
+  package McpPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  @@index([packageId, ts])
+  @@index([toolName])
+  @@index([agentId])
+}
+
+model McpSelfHealEvent {
+  id        String   @id @default(cuid())
+  packageName String
+  attempt   Int
+  backoffMs Int
+  reason    String   @default("")
+  succeeded Boolean  @default(false)
+  ts        DateTime @default(now())
+
+  @@index([packageName, ts])
+}
+
+model McpRagFeedback {
+  id         String   @id @default(cuid())
+  packageId  String
+  toolName   String
+  signal     String   // "failure" | "low_rating" | "missing_capability" | "drift"
+  weight     Float    @default(1.0)
+  context    String   @default("{}")  // JSON
+  resolved   Boolean  @default(false)
+  ts         DateTime @default(now())
+
+  package McpPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  @@index([packageId, signal])
+  @@index([resolved])
+}

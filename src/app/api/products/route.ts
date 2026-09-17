@@ -153,7 +153,7 @@ function mapDaemonProductToStore(p: DaemonProduct): Record<string, unknown> {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '')
-      + '-' + p.id.slice(-6),
+      + '-' + String(p.id).slice(-6),
     segmento,
     coreBusiness: p.description,
     precoSats: p.price_sats,

@@ -89,6 +89,13 @@ export interface DaemonMarketplaceStats {
   avg_price_sats: number
   total_revenue_sats: number
   total_calls: number
+  // Daemon /api/v1/marketplace also returns listings/active in its payload
+  // (aliases for total_products / online marketplace slots).
+  listings?: number
+  active?: number
+  purchases?: number
+  total_volume_bait?: number
+  fee_pct?: number
 }
 
 /** Query parameters accepted by fetchProductsFromDaemon */
@@ -266,6 +273,11 @@ export async function getDaemonMarketplaceStats(): Promise<DaemonMarketplaceStat
       avg_price_sats: 0,
       total_revenue_sats: 0,
       total_calls: 0,
+      listings: 0,
+      active: 0,
+      purchases: 0,
+      total_volume_bait: 0,
+      fee_pct: 0,
     }
   }
 }
@@ -404,7 +416,7 @@ export async function syncProductsFromDaemon(): Promise<SyncResult> {
   const durationMs = Date.now() - startTime
   const result: SyncResult = { totalFetched, upserted, errors, durationMs }
 
-  logger.info('Daemon product sync completed', result)
+  logger.info('Daemon product sync completed', result as unknown as Record<string, unknown>)
   return result
 }
 

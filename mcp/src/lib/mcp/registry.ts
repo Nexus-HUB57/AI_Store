@@ -1,98 +1,91 @@
 /**
- * MCP Ecosystem — Package Registry
- * In-memory registry with lazy-loading from DB
+ * MCP Registry — durable catalog of installed MCP servers.
+ *
+ * Backed by a JSON file under data/mcp-registry.json by default.
+ * Can be swapped for Prisma/Postgres in production (see PrismaMcpRegistry).
  */
 
-import type {
-  McpManifest,
-  McpToolDef,
-  McpHealthStatus,
-  McpServerStatus,
-} from './types'
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import path from "node:path";
+import { AipkgMcpManifest } from "./types";
 
-// ─── In-Memory Registry ──────────────────────────────────────────
-const packages = new Map<string, McpManifest>()
-const tools = new Map<string, McpToolDef & { packageName: string }>()
-let activeCalls = 0
-let startTime = Date.now()
-
-// ─── Package Registration ────────────────────────────────────────
-export function registerPackage(manifest: McpManifest): void {
-  packages.set(manifest.name, manifest)
-  for (const tool of manifest.tools) {
-    tools.set(`${manifest.name}/${tool.name}`, { ...tool, packageName: manifest.name })
-  }
+export interface InstalledMcp {
+  manifest: AipkgMcpManifest;
+  installedAt: number;
+  updatedAt: number;
+  installPath: string;
+  enabled: boolean;
 }
 
-export function unregisterPackage(name: string): void {
-  const manifest = packages.get(name)
-  if (manifest) {
-    for (const tool of manifest.tools) {
-      tools.delete(`${name}/${tool.name}`)
+export interface McpRegistry {
+  register(manifest: AipkgMcpManifest): Promise<InstalledMcp>;
+  unregister(name: string): Promise<void>;
+  get(name: string): Promise<InstalledMcp | undefined>;
+  list(): Promise<InstalledMcp[]>;
+  setEnabled(name: string, enabled: boolean): Promise<void>;
+}
+
+export class JsonFileMcpRegistry implements McpRegistry {
+  private cache: InstalledMcp[] | null = null;
+
+  constructor(private filePath: string = path.join(process.cwd(), "data", "mcp-registry.json")) {}
+
+  private async load(): Promise<InstalledMcp[]> {
+    if (this.cache) return this.cache;
+    try {
+      const txt = await readFile(this.filePath, "utf-8");
+      this.cache = JSON.parse(txt);
+      return this.cache!;
+    } catch {
+      this.cache = [];
+      return this.cache;
     }
-    packages.delete(name)
   }
-}
 
-export function getPackage(name: string): McpManifest | undefined {
-  return packages.get(name)
-}
-
-export function getAllPackages(): McpManifest[] {
-  return Array.from(packages.values())
-}
-
-export function findPackagesByCategory(category: string): McpManifest[] {
-  return Array.from(packages.values()).filter((p) => p.category === category)
-}
-
-export function findPackagesByTag(tag: string): McpManifest[] {
-  return Array.from(packages.values()).filter((p) => p.tags.includes(tag))
-}
-
-// ─── Tool Lookup ─────────────────────────────────────────────────
-export function getTool(fqn: string): (McpToolDef & { packageName: string }) | undefined {
-  return tools.get(fqn)
-}
-
-export function getAllTools(): (McpToolDef & { packageName: string })[] {
-  return Array.from(tools.values())
-}
-
-export function getToolsForPackage(name: string): McpToolDef[] {
-  const manifest = packages.get(name)
-  return manifest ? manifest.tools : []
-}
-
-// ─── Call Tracking ───────────────────────────────────────────────
-export function incrementActiveCalls(): void {
-  activeCalls++
-}
-
-export function decrementActiveCalls(): void {
-  activeCalls = Math.max(0, activeCalls - 1)
-}
-
-// ─── Health ──────────────────────────────────────────────────────
-export function getHealth(servers: McpServerStatus[] = []): McpHealthStatus {
-  const unhealthyServers = servers.filter((s) => s.status === 'error').length
-  return {
-    status: unhealthyServers > 0 ? 'degraded' : 'healthy',
-    uptime: Date.now() - startTime,
-    packagesLoaded: packages.size,
-    activeCalls,
-    servers,
-    timestamp: new Date().toISOString(),
+  private async save(): Promise<void> {
+    if (!this.cache) return;
+    await mkdir(path.dirname(this.filePath), { recursive: true });
+    await writeFile(this.filePath, JSON.stringify(this.cache, null, 2), "utf-8");
   }
-}
 
-export function resetStartTime(): void {
-  startTime = Date.now()
-}
+  async register(manifest: AipkgMcpManifest): Promise<InstalledMcp> {
+    const list = await this.load();
+    const idx = list.findIndex((m) => m.manifest.name === manifest.name);
+    const installed: InstalledMcp = {
+      manifest,
+      installedAt: idx >= 0 ? list[idx].installedAt : Date.now(),
+      updatedAt: Date.now(),
+      installPath: path.join("mcp-store", manifest.name, manifest.version),
+      enabled: idx >= 0 ? list[idx].enabled : true,
+    };
+    if (idx >= 0) list[idx] = installed;
+    else list.push(installed);
+    await this.save();
+    return installed;
+  }
 
-// ─── Utility ─────────────────────────────────────────────────────
-export function clear(): void {
-  packages.clear()
-  tools.clear()
-  activeCalls = 0
+  async unregister(name: string): Promise<void> {
+    const list = await this.load();
+    this.cache = list.filter((m) => m.manifest.name !== name);
+    await this.save();
+  }
+
+  async get(name: string): Promise<InstalledMcp | undefined> {
+    const list = await this.load();
+    return list.find((m) => m.manifest.name === name);
+  }
+
+  async list(): Promise<InstalledMcp[]> {
+    return await this.load();
+  }
+
+  async setEnabled(name: string, enabled: boolean): Promise<void> {
+    const list = await this.load();
+    const item = list.find((m) => m.manifest.name === name);
+    if (item) {
+      item.enabled = enabled;
+      item.updatedAt = Date.now();
+      await this.save();
+    }
+  }
 }

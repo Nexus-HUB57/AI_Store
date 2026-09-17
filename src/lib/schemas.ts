@@ -39,6 +39,9 @@ export const productsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(24),
   featured: z.enum(['true', 'false']).optional(),
+  // Source routing: 'daemon' forces daemon marketplace; 'local' forces Prisma DB.
+  // Omit for default fallback behavior (daemon first, then local).
+  source: z.enum(['daemon', 'local']).optional(),
 })
 
 // ─── Upload .aipkg ───
