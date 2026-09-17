@@ -33,7 +33,10 @@
     "mcp:list": "ls mcp/src/servers",
     "mcp:pack": "node scripts/pack-aipkg.mjs",
     "mcp:health": "curl -s http://localhost:3000/api/mcp/health",
-    "mcp:validate": "node scripts/validate-mcp-catalog.mjs"
+    "mcp:validate": "node scripts/validate-mcp-catalog.mjs",
+    "mcp:catalog:generate": "node scripts/generate-mcp-catalog-1200.mjs",
+    "mcp:catalog:seed": "node scripts/seed-mcp-catalog-1200.mjs",
+    "mcp:load": "node scripts/simulate-mcp-agent-load.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.11.1",
