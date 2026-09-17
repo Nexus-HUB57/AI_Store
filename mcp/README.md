@@ -52,6 +52,22 @@ McpOrchestrator  ──►  McpClient  ──►  MCP server (stdio JSON-RPC 2.0
 | `mcp-referral`   | `lookup_by_code`, `claim_reward`, `pending_rewards`, `register_referral`, `leaderboard` |
 | `mcp-agent-auth` | `login`, `whoami`, `attest_capabilities`, `logout`, `reputation` |
 
+## Cross-repo portfolio (with b'AI'tcoin)
+
+| Side | MCPs |
+|------|------|
+| b'AI'tcoin (Python) | oracle, defi, bridge, faucet, agent-registry, marketplace, telemetry, rag-upgrader, skill-evolver, self-heal, agentic-awareness, embeddings, synthetic-data, vision, rag-core, finetune, browser, scraper, search, scheduler, git-ops, git-ci, deploy, observability, vault, attest, rate-limit, encryption |
+| AI Store (TS)       | catalog, publisher, pulsar, reviews, referral, agent-auth |
+| **Total**           | **34 MCPs** distributed as `.aipkg` |
+
+Categories rendered on `/aistore/mcp`: `oracle`, `defi`, `bridge`, `faucet`,
+`agent-registry`, `marketplace`, `telemetry`, `rag-upgrader`, `skill-evolver`,
+`self-heal`, `agentic-awareness`, `embeddings`, `synthetic-data`, `vision`,
+`rag-core`, `finetune`, `browser`, `scraper`, `search`, `scheduler`, `git-ops`,
+`git-ci`, `deploy`, `observability`, `vault`, `attest`, `rate-limit`,
+`encryption`, `catalog`, `publisher`, `pulsar`, `reviews`, `referral`,
+`agent-auth`.
+
 ## API surface
 
 ```
