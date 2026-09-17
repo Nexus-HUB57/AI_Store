@@ -1,35 +1,90 @@
-name: Daily A2A Tool Generator
+# Cron: Daily A2A Tool Discovery & Catalog Refresh
+# Runs at 00:01 UTC daily
+# Discovers new A2A tools, refreshes MCP catalog, updates fitness scores
 
+name: Cron Daily A2A Tool
 on:
   schedule:
-    - cron: '1 0 * * *'   # daily at 00:01 UTC
-  workflow_dispatch:        # allow manual trigger
+    - cron: '1 0 * * *'  # 00:01 UTC daily
+  workflow_dispatch:       # Manual trigger
 
 concurrency:
   group: cron-daily-a2a-tool
   cancel-in-progress: false
 
 jobs:
-  generate-a2a-tool:
+  a2a-tool-refresh:
     runs-on: ubuntu-latest
-    env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    timeout-minutes: 30
+    permissions:
+      contents: write
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js 20
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: '22'
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Generate Prisma client
+      - name: Generate Prisma Client
         run: npx prisma generate
 
-      - name: Run A2A tool generator
-        run: node scripts/cron-generate-a2a-tool.mjs
+      - name: Run A2A Tool Discovery
+        env:
+          DATABASE_URL: file:./db/custom.db
+        run: |
+          echo "🔍 A2A Tool Discovery — $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          node scripts/expand-mcp-catalog-1200.mjs 2>&1 || true
+          echo "✅ A2A Tool Discovery complete"
+
+      - name: Update Fitness Scores
+        env:
+          DATABASE_URL: file:./db/custom.db
+        run: |
+          echo "🏋️ Updating fitness scores..."
+          node -e "
+            const { PrismaClient } = require('@prisma/client');
+            const db = new PrismaClient();
+            (async () => {
+              const pkgs = await db.mcpPackage.findMany();
+              for (const p of pkgs) {
+                const fitness = (p.rating * 20 + p.pulsarEnergy * 0.3 + p.downloads / 100) / 3;
+                await db.mcpPackage.update({
+                  where: { id: p.id },
+                  data: { fitnessScore: Math.min(99, Math.max(0, fitness)) }
+                });
+              }
+              console.log('Updated fitness for', pkgs.length, 'packages');
+              await db.\$disconnect();
+            })();
+          " 2>&1 || true
+
+      - name: Commit DB updates
+        run: |
+          git config user.name "aistore-cron[bot]"
+          git config user.email "cron@aistore.nexus"
+          git add -A
+          git diff --staged --quiet || git commit -m "chore(cron): daily A2A tool discovery & fitness update"
+          git push
+
+      - name: Health Check
+        run: |
+          echo "📊 DB Stats:"
+          node -e "
+            const { PrismaClient } = require('@prisma/client');
+            const db = new PrismaClient();
+            (async () => {
+              const total = await db.mcpPackage.count();
+              const tools = await db.mcpTool.count();
+              const featured = await db.mcpPackage.count({ where: { featured: true } });
+              const verified = await db.mcpPackage.count({ where: { verified: true } });
+              console.log('  Packages:', total);
+              console.log('  Tools:', tools);
+              console.log('  Featured:', featured);
+              console.log('  Verified:', verified);
+              await db.\$disconnect();
+            })();
+          " 2>&1

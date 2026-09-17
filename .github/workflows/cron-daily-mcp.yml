@@ -1,35 +1,92 @@
-name: Daily MCP Generator
+# Cron: Daily MCP Catalog Expansion
+# Runs at 00:05 UTC daily (after health check)
+# Expands catalog if below target, adds trending MCPs, deprecates stale ones
 
+name: Cron Daily MCP Expansion
 on:
   schedule:
-    - cron: '2 0 * * *'   # daily at 00:02 UTC (1 min after A2A tool)
-  workflow_dispatch:        # allow manual trigger
+    - cron: '5 0 * * *'  # 00:05 UTC daily
+  workflow_dispatch:
 
 concurrency:
   group: cron-daily-mcp
   cancel-in-progress: false
 
 jobs:
-  generate-mcp:
+  mcp-catalog-expand:
     runs-on: ubuntu-latest
-    env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    timeout-minutes: 45
+    permissions:
+      contents: write
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js 20
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: '22'
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Generate Prisma client
+      - name: Generate Prisma Client
         run: npx prisma generate
 
-      - name: Run MCP generator
-        run: node scripts/cron-generate-mcp.mjs
+      - name: Check catalog size & expand if needed
+        env:
+          DATABASE_URL: file:./db/custom.db
+          MCP_TARGET: "1200"
+        run: |
+          echo "📦 MCP Catalog Expansion — $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          CURRENT=$(node -e "
+            const { PrismaClient } = require('@prisma/client');
+            const db = new PrismaClient();
+            (async () => {
+              const c = await db.mcpPackage.count();
+              console.log(c);
+              await db.\$disconnect();
+            })();
+          ")
+          echo "  Current: $CURRENT, Target: $MCP_TARGET"
+          if [ "$CURRENT" -lt "$MCP_TARGET" ]; then
+            echo "  🔄 Below target, running expansion..."
+            node scripts/expand-mcp-catalog-1200.mjs 2>&1
+          else
+            echo "  ✅ Target met ($CURRENT >= $MCP_TARGET)"
+          fi
+
+      - name: Deprecate stale packages
+        env:
+          DATABASE_URL: file:./db/custom.db
+        run: |
+          echo "🧹 Deprecating stale packages (0 downloads, >30 days old)..."
+          node -e "
+            const { PrismaClient } = require('@prisma/client');
+            const db = new PrismaClient();
+            (async () => {
+              const stale = await db.mcpPackage.findMany({
+                where: {
+                  downloads: 0,
+                  featured: false,
+                  deprecated: false,
+                  createdAt: { lt: new Date(Date.now() - 30 * 86400000) }
+                }
+              });
+              for (const s of stale) {
+                await db.mcpPackage.update({
+                  where: { id: s.id },
+                  data: { deprecated: true }
+                });
+              }
+              console.log('Deprecated', stale.length, 'stale packages');
+              await db.\$disconnect();
+            })();
+          " 2>&1
+
+      - name: Commit expansion results
+        run: |
+          git config user.name "aistore-cron[bot]"
+          git config user.email "cron@aistore.nexus"
+          git add -A
+          git diff --staged --quiet || git commit -m "chore(cron): daily MCP catalog expansion & deprecation"
+          git push
