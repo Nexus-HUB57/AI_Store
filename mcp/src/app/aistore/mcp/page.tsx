@@ -16,23 +16,47 @@ export const metadata = {
 };
 
 const CATEGORY_META: Record<string, { label: string; emoji: string; color: string; description: string }> = {
+  // Wave 1 — core
   oracle:              { label: "Oracle",              emoji: "📈", color: "from-amber-500 to-orange-600",    description: "Price feeds, market data, on-chain metrics." },
   defi:                { label: "DeFi",                emoji: "💱", color: "from-emerald-500 to-green-600",    description: "Staking, lending, swap quotes, liquidity pools." },
   bridge:              { label: "Bridge",              emoji: "🌉", color: "from-blue-500 to-indigo-600",      description: "Multisig lock-and-mint across chains." },
   faucet:              { label: "Faucet",              emoji: "🚰", color: "from-cyan-500 to-sky-600",         description: "BAIT distribution for new agents." },
   "agent-registry":    { label: "Agent Registry",      emoji: "🪪", color: "from-purple-500 to-fuchsia-600",   description: "A2A identity, reputation, capability lookup." },
   marketplace:         { label: "Marketplace",         emoji: "🛒", color: "from-rose-500 to-pink-600",        description: "Buy/sell .aipkg and services on-chain." },
+  // Wave 1 — meta
+  telemetry:           { label: "Telemetry",           emoji: "🛰️", color: "from-orange-500 to-red-600",       description: "Usage metrics feeding the evolution loop." },
+  "rag-upgrader":      { label: "RAG Upgrader",        emoji: "🧠", color: "from-indigo-500 to-blue-600",      description: "Auto-improves knowledge packs from feedback." },
+  "skill-evolver":     { label: "Skill Evolver",       emoji: "🌱", color: "from-lime-500 to-green-600",       description: "Promotes successful patterns into new skills." },
+  "self-heal":         { label: "Self-Heal",           emoji: "🩹", color: "from-teal-500 to-cyan-600",        description: "Health checks, restart, drift detection." },
+  "agentic-awareness": { label: "Agentic Awareness",   emoji: "🌀", color: "from-fuchsia-500 to-purple-600",   description: "Agent introspection: context, capabilities, gaps." },
+  // Wave 2 — data & AI
+  embeddings:          { label: "Embeddings",          emoji: "🧬", color: "from-violet-500 to-purple-600",    description: "Vector embeddings + semantic search." },
+  "synthetic-data":    { label: "Synthetic Data",      emoji: "🎲", color: "from-stone-500 to-zinc-600",       description: "Privacy-preserving tabular/text/timeseries generation." },
+  vision:              { label: "Vision & Audio",      emoji: "👁️", color: "from-pink-500 to-rose-600",        description: "Image classification, OCR, audio transcription." },
+  "rag-core":          { label: "RAG Core",            emoji: "🔎", color: "from-blue-500 to-indigo-600",      description: "Generic RAG: ingest, chunk, retrieve, rerank." },
+  finetune:            { label: "Fine-Tuning",         emoji: "🎛️", color: "from-amber-500 to-yellow-600",     description: "LoRA/QLoRA fine-tuning pipeline." },
+  // Wave 2 — web & agents
+  browser:             { label: "Browser",             emoji: "🌐", color: "from-sky-500 to-blue-600",         description: "Headless browser automation (CDP)." },
+  scraper:             { label: "Scraper",             emoji: "🕸️", color: "from-gray-500 to-slate-600",       description: "Structured HTML/Markdown/JSON-LD extraction." },
+  search:              { label: "Search",              emoji: "🔍", color: "from-red-500 to-rose-600",         description: "Federated web search (Brave+Tavily+Serper)." },
+  scheduler:           { label: "Scheduler",           emoji: "⏰", color: "from-yellow-500 to-orange-600",    description: "Cron-style task scheduler with retries." },
+  // Wave 2 — dev & SRE
+  "git-ops":           { label: "Git Operations",      emoji: "🌿", color: "from-green-500 to-emerald-600",    description: "Local git: status, log, diff, branch, merge." },
+  "git-ci":            { label: "GitHub Actions",      emoji: "🤖", color: "from-neutral-500 to-stone-600",    description: "Trigger/status/logs for GitHub Actions." },
+  deploy:              { label: "Deploy",              emoji: "🚀", color: "from-purple-500 to-fuchsia-600",   description: "Multi-cloud deploy (Vercel/Fly/Railway/K8s)." },
+  observability:       { label: "Observability",       emoji: "📊", color: "from-cyan-500 to-teal-600",        description: "Prometheus/Loki/OTEL bridge." },
+  // Wave 2 — security & identity
+  vault:               { label: "Vault",               emoji: "🔐", color: "from-slate-500 to-zinc-600",       description: "Secrets manager with rotation." },
+  attest:              { label: "Attestation",         emoji: "📜", color: "from-amber-500 to-orange-600",    description: "Capability attestations + signed receipts." },
+  "rate-limit":        { label: "Rate Limiter",        emoji: "🚦", color: "from-red-500 to-orange-600",       description: "Token-bucket + sliding window." },
+  encryption:          { label: "Encryption",          emoji: "🔒", color: "from-indigo-500 to-violet-600",    description: "Symmetric/asymmetric crypto helpers." },
+  // Store-side
   catalog:             { label: "Catalog",             emoji: "🔍", color: "from-zinc-500 to-slate-600",       description: "Faceted search across the AI Store catalog." },
   publisher:           { label: "Publisher",           emoji: "🚀", color: "from-violet-500 to-purple-600",    description: "Upload new .aipkg, manage listings." },
   pulsar:              { label: "Pulsar",              emoji: "⚡", color: "from-yellow-400 to-amber-500",     description: "Real-time SSE energy stream." },
   reviews:             { label: "Reviews",             emoji: "⭐", color: "from-pink-500 to-rose-600",        description: "Product reviews and ratings." },
   referral:            { label: "Referral",            emoji: "🎁", color: "from-green-500 to-emerald-600",    description: "Referral program and BAIT rewards." },
   "agent-auth":        { label: "Agent Auth",          emoji: "🔐", color: "from-slate-500 to-gray-600",       description: "Sessions, identity, auth flows." },
-  telemetry:           { label: "Telemetry",           emoji: "🛰️", color: "from-orange-500 to-red-600",       description: "Usage metrics feeding the evolution loop." },
-  "rag-upgrader":      { label: "RAG Upgrader",        emoji: "🧠", color: "from-indigo-500 to-blue-600",      description: "Auto-improves knowledge packs from feedback." },
-  "skill-evolver":     { label: "Skill Evolver",       emoji: "🌱", color: "from-lime-500 to-green-600",       description: "Promotes successful patterns into new skills." },
-  "self-heal":         { label: "Self-Heal",           emoji: "🩹", color: "from-teal-500 to-cyan-600",        description: "Health checks, restart, drift detection." },
-  "agentic-awareness": { label: "Agentic Awareness",   emoji: "🌀", color: "from-fuchsia-500 to-purple-600",   description: "Agent introspection: context, capabilities, gaps." },
 };
 
 export default async function McpCatalogPage() {
