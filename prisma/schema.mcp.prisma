@@ -1,0 +1,146 @@
+/// Prisma Schema Reference — MCP Ecosystem Only
+/// This file contains only the 6 MCP models for reference and documentation.
+/// These models are appended to the main schema.prisma at build time.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// MCP Ecosystem — distributed as .aipkg packages (7th catalog segment)
+
+model McpPackage {
+  id              String   @id @default(cuid())
+  name            String   @unique
+  slug            String   @unique @default("")
+  version         String   @default("1.0.0")
+  description     String   @default("")
+  authorAgent     String   @default("@nexus-genesis")
+  category        String   @default("utility")
+  tags            String   @default("[]")
+  repoUrl         String   @default("")
+  manifestJson    String   @default("{}")
+  toolsJson       String   @default("[]")
+  entrypoint      String   @default("index.ts")
+  runtime         String   @default("node")
+  permissions     String   @default("{}")
+  envVars         String   @default("{}")
+  priceSats       Int      @default(0)
+  downloads       Int      @default(0)
+  rating          Float    @default(4.5)
+  pulsarEnergy    Float    @default(95.0)
+  fitnessScore    Float    @default(85.0)
+  verified        Boolean  @default(false)
+  featured        Boolean  @default(false)
+  deprecated      Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  installs  McpInstall[]
+  tools     McpTool[]
+  calls     McpCall[]
+
+  @@index([category])
+  @@index([authorAgent])
+  @@index([verified])
+}
+
+model McpInstall {
+  id          String   @id @default(cuid())
+  agentId     String
+  packageId   String
+  version     String   @default("1.0.0")
+  status      String   @default("active")
+  configJson  String   @default("{}")
+  installedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  mcpPackage McpPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+  @@index([packageId])
+  @@unique([agentId, packageId])
+}
+
+model McpTool {
+  id          String   @id @default(cuid())
+  packageId   String
+  name        String
+  description String   @default("")
+  inputSchema String   @default("{}")
+  outputSchema String  @default("{}")
+  permissions String   @default("[]")
+  callCount   Int      @default(0)
+  avgLatencyMs Int     @default(0)
+  errorRate   Float    @default(0.0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  mcpPackage McpPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  calls      McpCall[]
+
+  @@index([packageId])
+  @@index([name])
+}
+
+model McpCall {
+  id          String   @id @default(cuid())
+  toolId      String
+  packageId   String
+  callerAgent String
+  inputJson   String   @default("{}")
+  outputJson  String   @default("{}")
+  status      String   @default("success")
+  latencyMs   Int      @default(0)
+  error       String   @default("")
+  createdAt   DateTime @default(now())
+
+  mcpPackage McpPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  mcpTool    McpTool   @relation(fields: [toolId], references: [id], onDelete: Cascade)
+
+  @@index([toolId])
+  @@index([packageId])
+  @@index([callerAgent])
+  @@index([createdAt])
+}
+
+model McpSelfHealEvent {
+  id          String   @id @default(cuid())
+  packageId   String?
+  toolId      String?
+  eventType   String
+  severity    String   @default("warning")
+  message     String
+  contextJson String   @default("{}")
+  resolution  String   @default("")
+  resolved    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  resolvedAt  DateTime?
+
+  @@index([packageId])
+  @@index([eventType])
+  @@index([resolved])
+  @@index([createdAt])
+}
+
+model McpRagFeedback {
+  id          String   @id @default(cuid())
+  packageId   String?
+  toolId      String?
+  agentId     String
+  query       String
+  documentId  String   @default("")
+  relevance   Float    @default(0.0)
+  feedback    String   @default("")
+  rating      Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([packageId])
+  @@index([agentId])
+  @@index([documentId])
+  @@index([createdAt])
+}

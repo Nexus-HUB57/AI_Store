@@ -1,0 +1,35 @@
+name: Daily A2A Tool Generator
+
+on:
+  schedule:
+    - cron: '1 0 * * *'   # daily at 00:01 UTC
+  workflow_dispatch:        # allow manual trigger
+
+concurrency:
+  group: cron-daily-a2a-tool
+  cancel-in-progress: false
+
+jobs:
+  generate-a2a-tool:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Run A2A tool generator
+        run: node scripts/cron-generate-a2a-tool.mjs
