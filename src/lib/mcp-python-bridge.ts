@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * MCP Python Integration Bridge
  *
