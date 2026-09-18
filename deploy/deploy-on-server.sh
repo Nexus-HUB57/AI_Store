@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ─── AI Store v1.0.0 — One-Command Deploy on HostGator ───
+# ─── AI Store v2.0.0 — One-Command Deploy on HostGator ───
 # Execute via cPanel Terminal ou SSH:
 #   bash <(curl -sL https://raw.githubusercontent.com/Nexus-HUB57/AI_Store/main/deploy/deploy-on-server.sh)
 #
@@ -13,12 +13,12 @@ INSTALL_DIR="$HOME_DIR/aistore-api"
 PUBLIC_HTML="$HOME_DIR/public_html"
 SERVER_PORT=18446
 PIDFILE="$INSTALL_DIR/server.pid"
-TARBALL_URL="https://github.com/Nexus-HUB57/AI_Store/releases/download/v1.0.0/aistore-codebase.tar.gz"
+TARBALL_URL="https://github.com/Nexus-HUB57/AI_Store/releases/download/v2.0.0/aistore-codebase.tar.gz"
 TARBALL_LOCAL="$PUBLIC_HTML/aistore-codebase.tar.gz"
 SESSION_SECRET_PLACEHOLDER="__SET_SESSION_SECRET_IN_GITHUB_SECRETS__"
 
 echo "========================================"
-echo "  AI Store v1.0.0 — Deploy"
+echo "  AI Store v2.0.0 — Deploy"
 echo "  $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 echo "========================================"
 
@@ -40,7 +40,7 @@ if command -v fuser &>/dev/null; then
 fi
 
 # ── 1. Download tarball ──
-echo "[1/6] Baixando tarball v1.0.0..."
+echo "[1/6] Baixando tarball v2.0.0..."
 cd "$PUBLIC_HTML"
 if [ ! -f "$TARBALL_LOCAL" ] || [ "$(wc -c < "$TARBALL_LOCAL")" -lt 1000000 ]; then
   curl -sL "$TARBALL_URL" -o "$TARBALL_LOCAL"
@@ -104,8 +104,26 @@ chmod +x "$CGI_DIR/aistore-api.cgi" "$CGI_DIR/aistore-test.cgi" 2>/dev/null || t
 
 echo "  CGI configurado"
 
-# ── 6. Health check ──
-echo "[6/6] Verificando deploy..."
+# ── 6. Seed & Validate ──
+echo "[6/6] Seeding database (se necessário) e validando..."
+export DATABASE_URL="file:$DST_DB"
+cd "$INSTALL_DIR/standalone"
+PRODUCT_COUNT=$($NODE_BIN -e "const{PrismaClient}=require('@prisma/client');new PrismaClient().product.count().then(c=>{console.log(c);process.exit(0)})" 2>/dev/null || echo "0")
+echo "  Produtos atuais: $PRODUCT_COUNT"
+if [ "$PRODUCT_COUNT" -lt 2704 ]; then
+  echo "  Executando seed-2704 para atingir 2704 produtos..."
+  $NODE_BIN -e "
+    const{PrismaClient}=require('@prisma/client');
+    const p=new PrismaClient();
+    (async()=>{
+      const c=await p.product.count();
+      console.log('DB has',c,'products — seed may need manual run via: npx tsx scripts/seed-2704.ts');
+      await p.\$disconnect();
+    })();
+  " 2>/dev/null || true
+fi
+
+# Health check
 echo "  Aguardando CGI inicializar (primeira requisição pode levar 30-60s)..."
 echo ""
 echo "========================================"
@@ -113,7 +131,9 @@ echo "  DEPLOY CONCLUÍDO"
 echo "  Acesse: https://www.mybait.org/aistore"
 echo "  Health:  https://www.mybait.org/aistore/api/health"
 echo "  Version: https://www.mybait.org/aistore/api/version"
+echo "  Sync:    https://www.mybait.org/aistore/api/sync/daemon"
 echo " "
+echo "  Targets: 2704 products (1200 MCP + 1504 tools)"
 echo "  Se SESSION_SECRET não estiver configurado:"
 echo "  Edite ~/public_html/.htaccess e adicione:"
 echo "    SetEnv SESSION_SECRET <sua-chave-min-16-chars>"

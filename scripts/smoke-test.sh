@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ─── AI Store Nexus v1.0.0 — Production Smoke Test Suite ───
+# ─── AI Store Nexus v2.0.0 — Production Smoke Test Suite ───
 # Usage: bash scripts/smoke-test.sh [BASE_URL]
 #   Default: http://localhost:3000
 #   Production: bash scripts/smoke-test.sh https://www.mybait.org/aistore
@@ -99,7 +99,7 @@ check_latency() {
 echo ""
 echo -e "${BOLD}══════════════════════════════════════════════════════${NC}"
 echo -e "${BOLD}  AI Store Nexus — Smoke Test Suite v2.0${NC}"
-echo -e "${BOLD}  Version: 1.0.0${NC}"
+echo -e "${BOLD}  Version: 2.0.0${NC}"
 echo -e "  Target: ${CYAN}$BASE_URL${NC}"
 echo -e "  Date:   $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 echo -e "${BOLD}══════════════════════════════════════════════════════${NC}"
@@ -118,7 +118,7 @@ check "AI Plugin manifest" "$BASE_URL/.well-known/ai-plugin.json" "200"
 echo ""
 echo -e "${BOLD}[2/8] API Core Endpoints${NC}"
 check "/api/version" "$BASE_URL/api/version" "200"
-check_json "Version value" "$BASE_URL/api/version" "['version']" "1.0.0"
+check_json "Version value" "$BASE_URL/api/version" "['version']" "2.0.0"
 check_json "Version deployment" "$BASE_URL/api/version" "['deployment']" "hostgator-cgi"
 check "/api/health" "$BASE_URL/api/health" "200"
 check_json "Health status" "$BASE_URL/api/health" "['status']" "ok"
@@ -177,10 +177,12 @@ echo -e "${BOLD}[8/8] Data Integrity & Performance${NC}"
 # Product count
 product_count=$(http_body "$BASE_URL/api/stats" | python3 -c "import sys,json; print(json.load(sys.stdin)['total'])" 2>/dev/null)
 if [ "$product_count" -ge 1 ] 2>/dev/null; then
-  if [ "$product_count" -ge 1500 ]; then
-    pass "Products in catalog: $product_count (>= 1500)"
+  if [ "$product_count" -ge 2704 ]; then
+    pass "Products in catalog: $product_count (>= 2704)"
+  elif [ "$product_count" -ge 1500 ]; then
+    warn "Products in catalog: $product_count (>= 1500 but < 2704)"
   else
-    warn "Products in catalog: $product_count (expected >= 1500)"
+    warn "Products in catalog: $product_count (expected >= 2704)"
   fi
 else
   fail "No products in catalog (count: ${product_count:-N/A})"
@@ -188,10 +190,10 @@ fi
 
 # Version consistency
 version=$(http_body "$BASE_URL/api/version" | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])" 2>/dev/null)
-if [ "$version" = "1.0.0" ]; then
+if [ "$version" = "2.0.0" ]; then
   pass "Version consistency: $version"
 else
-  fail "Version mismatch: expected 1.0.0, got ${version:-N/A}"
+  fail "Version mismatch: expected 2.0.0, got ${version:-N/A}"
 fi
 
 # Health deep check
@@ -243,7 +245,8 @@ DURATION=$((END_TIME - START_TIME))
 
 echo ""
 echo -e "${BOLD}══════════════════════════════════════════════════════${NC}"
-echo -e "  ${BOLD}Results: ${GREEN}$PASSED passed${NC}, ${RED}$FAILED failed${NC} (${PASSED + FAILED} total)"
+TOTAL_SMOKES=$((PASSED + FAILED))
+echo -e "  ${BOLD}Results: ${GREEN}$PASSED passed${NC}, ${RED}$FAILED failed${NC} (${TOTAL_SMOKES} total)"
 echo -e "  Duration: ${DURATION}s"
 if [ $FAILED -eq 0 ]; then
   echo -e "  Status: ${GREEN}${BOLD}✅ ALL TESTS PASSED${NC}"
