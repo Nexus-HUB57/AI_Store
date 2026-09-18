@@ -13,7 +13,7 @@ import { db } from './db'
 import { readFileSync, existsSync, readdirSync } from 'fs'
 import { join } from 'path'
 import { execFile } from 'child_process'
-import { promisify } from 'promisify'
+import { promisify } from 'util'
 
 const execFileAsync = promisify(execFile)
 
