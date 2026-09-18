@@ -10,6 +10,7 @@ import {
 
 // ─── Category mapping: AI Store segmento → daemon category ───
 const SEGMENT_TO_DAEMON_CATEGORY: Record<string, string> = {
+  MCP_PROTOCOL_SERVERS: 'ml_inference',
   SYNTHETIC_INFRASTRUCTURE: 'ml_inference',
   AGENT_APPS: 'smart_contract',
   IN_APP_PRODUCTS: 'data_processing',
