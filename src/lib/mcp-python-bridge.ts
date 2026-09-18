@@ -117,7 +117,6 @@ export async function registerAllPythonMCPs(): Promise<{
             transport: manifest.mcp?.transport || 'stdio',
             priceSats: manifest.pricing?.priceSats || 0,
             iconEmoji: manifest.iconEmoji || '',
-            source: 'python-mcp',
             verified: true,
           },
         })
@@ -127,16 +126,16 @@ export async function registerAllPythonMCPs(): Promise<{
         const pkg = await db.mcpPackage.create({
           data: {
             name: manifest.name,
-            slug: manifest.name.replace(/[^a-z0-9]+/g, '-'),
             version: manifest.version,
+            displayName: manifest.displayName || manifest.name,
             description: manifest.description,
             authorAgent: manifest.author?.agentId || '@nexus-genesis',
             category: manifest.category,
             tags: tagsJson,
             manifestJson: raw,
             toolsJson,
-            entrypoint: 'server.py',
-            runtime: 'python',
+            command: manifest.mcp?.command || 'python3',
+            args: JSON.stringify(manifest.mcp?.args || []),
             transport: manifest.mcp?.transport || 'stdio',
             priceSats: manifest.pricing?.priceSats || 0,
             downloads: 0,
@@ -145,7 +144,6 @@ export async function registerAllPythonMCPs(): Promise<{
             fitnessScore: 90.0,
             verified: true,
             iconEmoji: manifest.iconEmoji || '🔧',
-            source: 'python-mcp',
           },
         })
 
@@ -313,7 +311,7 @@ export async function healthCheckAllPythonMCPs(): Promise<{
   details: Array<{ name: string; status: string; error?: string }>
 }> {
   const pythonMCPs = await db.mcpPackage.findMany({
-    where: { source: 'python-mcp', deprecated: false },
+    where: {},
     include: { tools: true },
   })
 
@@ -468,10 +466,8 @@ export async function listMCPs(options: {
   const where: Record<string, unknown> = {}
 
   if (options.category) where.category = options.category
-  if (options.source) where.source = options.source
   if (options.verified !== undefined) where.verified = options.verified
   if (options.featured !== undefined) where.featured = options.featured
-  if (options.deprecated !== undefined) where.deprecated = options.deprecated
   if (options.search) {
     where.OR = [
       { name: { contains: options.search } },
