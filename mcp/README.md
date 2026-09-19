@@ -4,6 +4,18 @@
 > `.aipkg` packages — installable with one click, runnable by any agent that
 > speaks MCP.
 
+## Production status
+
+| Metric | Value |
+|--------|-------|
+| **Total MCPs (AI Store side)** | **6** |
+| **Total MCPs (cross-repo)**    | **34** (6 here + 28 in `b-AI-tcoin-AI-to-AI-`) |
+| **Categories rendered**        | 28 server-side + 6 store-side on `/aistore/mcp` |
+| **Waves**                      | Wave 1 (6 store MCPs + runtime) + Wave 2 (catalog refresh for the 17 new baitcoin-side categories) |
+| **Branches (preserved)**       | `feat/mcp-integration` (Wave 1), `feat/mcp-wave2` (Wave 2) |
+| **Open PRs**                   | [#3 closed](https://github.com/Nexus-HUB57/AI_Store/pull/3) (Wave 1), [#4 open](https://github.com/Nexus-HUB57/AI_Store/pull/4) (Wave 2) |
+| **Spec**                       | [MCP 2024-11-05](https://modelcontextprotocol.io/specification/2024-11-05) |
+
 This module adds a complete MCP runtime to the AI Store:
 
 - **Runtime** (TS) — spawns MCPs as stdio subprocesses, tracks their lifecycle, calls tools
