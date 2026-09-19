@@ -26,10 +26,8 @@ export async function POST() {
 export async function GET() {
   try {
     const stats = await getDaemonMarketplaceStats()
-    const listings = stats.listings ?? 0
-    const active = stats.active ?? 0
     return NextResponse.json({
-      daemonOnline: listings > 0 || active > 0,
+      daemonOnline: stats.total_products > 0,
       ...stats,
     })
   } catch (error) {

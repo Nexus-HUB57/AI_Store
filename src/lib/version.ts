@@ -6,5 +6,5 @@ export const APP_NAME = 'AI Store Nexus AI-OS'
 export const DEPLOYMENT_TARGET = 'hostgator-cgi'
 export const PROTOCOL_VERSION = 'A2A-RPC/v1'
 export const BAIT_SDK_VERSION = 'v2-hybrid'
-export const TOTAL_TOOLS = 2704
-export const TOTAL_MCP_SERVERS = 1200
+export const TOTAL_TOOLS = 1504
+export const TOTAL_MCP_SERVERS = 0

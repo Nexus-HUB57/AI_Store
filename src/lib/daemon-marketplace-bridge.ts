@@ -416,7 +416,7 @@ export async function syncProductsFromDaemon(): Promise<SyncResult> {
   const durationMs = Date.now() - startTime
   const result: SyncResult = { totalFetched, upserted, errors, durationMs }
 
-  logger.info('Daemon product sync completed', result as unknown as Record<string, unknown>)
+  logger.info('Daemon product sync completed', { ...result })
   return result
 }
 

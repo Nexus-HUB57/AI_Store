@@ -69,18 +69,22 @@ export async function GET(req: NextRequest) {
         } else {
           if (search) trackSearch(search, result.pagination.total)
 
-          return NextResponse.json({
-            products,
-            pagination: {
-              page: result.pagination.page,
-              limit: result.pagination.limit,
-              total: result.pagination.total,
-              totalPages: result.pagination.total_pages,
-            },
-            source: 'daemon',
-            daemonCategories: result.categories,
-            totalDaemonProducts: result.pagination.total,
-          })
+          // If daemon returned products, return them; otherwise fall through to local DB
+          if (products.length > 0) {
+            return NextResponse.json({
+              products,
+              pagination: {
+                page: result.pagination.page,
+                limit: result.pagination.limit,
+                total: result.pagination.total,
+                totalPages: result.pagination.total_pages,
+              },
+              source: 'daemon',
+              daemonCategories: result.categories,
+              totalDaemonProducts: result.pagination.total,
+            })
+          }
+          // Daemon returned 0 products — fall through to local DB
         }
       } catch (daemonError) {
         console.warn('[products] Daemon unavailable, falling back to local DB:', daemonError)
