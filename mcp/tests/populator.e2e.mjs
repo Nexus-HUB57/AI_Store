@@ -17,12 +17,20 @@
  */
 
 import { spawn } from "node:child_process";
-import { createInterface } from "node:readline";
-import { PrismaClient } from "@prisma/client";
 import { unlinkSync, existsSync } from "node:fs";
+import prismaPackage from "@prisma/client";
+import { fileURLToPath } from "node:url";
+import { dirname, join, resolve } from "node:path";
 
-const DB_PATH = "/workspace/AI_Store/mcp/tests/_populator_e2e.db";
-const SERVER = "mcp/src/servers/populator/server.ts";
+const { PrismaClient } = prismaPackage;
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const DB_PATH = join(ROOT, "mcp/tests/_populator_e2e.db");
+const SERVER = join(ROOT, "mcp/src/servers/populator/server.ts");
+// O servidor usa Bun para executar TypeScript ESM; MCP_TS_RUNTIME permite
+// apontar para um binário alternativo em ambientes de desenvolvimento.
+const tsRuntime = process.env.MCP_TS_RUNTIME || "bun";
+const tsArgs = ["run", SERVER];
 
 if (existsSync(DB_PATH)) unlinkSync(DB_PATH);
 
@@ -31,18 +39,23 @@ const prisma = new PrismaClient({ datasources: { db: { url: `file:${DB_PATH}` } 
 // Cria schema mínimo copiando do principal
 import { execSync } from "node:child_process";
 execSync(
-  `cd /workspace/AI_Store && DATABASE_URL="file:${DB_PATH}" PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1 ` +
-  `npx -y prisma@6 db push --skip-generate --accept-data-loss 2>&1 | tail -3`,
-  { stdio: "inherit" }
+  `DATABASE_URL="file:${DB_PATH}" PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1 ` +
+  `npx -y prisma@6 db push --schema prisma/schema.prisma --skip-generate --accept-data-loss`,
+  { cwd: ROOT, stdio: "inherit" }
 );
 await prisma.$disconnect();
 
 // =================================================================
 // JSON-RPC over stdio
 // =================================================================
-const proc = spawn("bun", ["run", SERVER], {
-  cwd: "/workspace/AI_Store",
-  env: { ...process.env, DATABASE_URL: `file:${DB_PATH}` },
+const proc = spawn(tsRuntime, tsArgs, {
+  cwd: ROOT,
+  env: {
+    ...process.env,
+    DATABASE_URL: `file:${DB_PATH}`,
+    // O E2E nunca publica dados de teste em um serviço externo.
+    MYBAIT_API: "http://127.0.0.1:9/api/v1",
+  },
   stdio: ["pipe", "pipe", "pipe"],
 });
 proc.stderr.on("data", d => process.stderr.write(`[server-err] ${d}`));
@@ -461,17 +474,17 @@ await it("DB final state consistente (>= 6 produtos, 1+ mcpPackage)", async () =
   console.log(`    → DB: ${totalProd} produtos, ${totalPkg} mcpPackages, ${bySeg.length} segmentos`);
 });
 
-// --- LIVE: cross_post_to_mylink contra mybait.org real ---
-console.log("\n=== FASE 2: integração LIVE contra mybait.org ===\n");
+// --- Integração offline: cross_post_to_mylink deve enfileirar ---
+console.log("\n=== FASE 2: integração offline com fallback MyLink ===\n");
 
-await it("cross_post_to_mylink contra mybait.org real (live)", async () => {
+await it("cross_post_to_mylink indisponível usa fallback local", async () => {
   // Cria um produto novo só pra esse teste
   const reg = await call("tools/call", {
     name: "register_product",
     arguments: {
       name: "Live MyLink Bridge Tester",
       slug: "live-mylink-bridge-tester",
-      coreBusiness: "Produto descartável usado pelo E2E para validar o cross_post_to_mylink contra a API real do mybait.org.",
+      coreBusiness: "Produto descartável usado pelo E2E para validar o fallback local do cross_post_to_mylink.",
       precoSats: 0,
       authorAgent: "@e2e-bridge",
     },
@@ -484,11 +497,11 @@ await it("cross_post_to_mylink contra mybait.org real (live)", async () => {
     arguments: { slug: "live-mylink-bridge-tester", agentId: "@e2e-bridge" },
   });
   const d = asText(r);
-  // Pode dar ok=true (201) OU fallback_queued (mybait hang/timeout)
+  // O endpoint é isolado para localhost:9 pelo ambiente do E2E.
   if (!d.payload) throw new Error("payload missing");
   if (!d.payload.text.includes("Live MyLink Bridge Tester")) throw new Error("payload.text sem nome do produto");
   if (d.ok === undefined && d.mode === undefined) throw new Error("resposta vazia");
-  console.log(`    → live mode=${d.mode ?? "ok"} ok=${d.ok ?? "n/a"} queued=${d.queued ?? false}`);
+  console.log(`    → fallback mode=${d.mode ?? "ok"} ok=${d.ok ?? "n/a"} queued=${d.queued ?? false}`);
 });
 
 await it("cross_post_to_mylink forceQueue=true (grava direto na fila)", async () => {

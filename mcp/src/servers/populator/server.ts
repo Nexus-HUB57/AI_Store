@@ -642,7 +642,7 @@ server.tool(
     try {
       const ctl = new AbortController();
       const tmo = setTimeout(() => ctl.abort(), 6000);
-      const r = await fetch(`${MYBAIT_API}/mylink/feed`, {
+      const r = await mybaitFetch("/mylink/feed", {
         method: "POST",
         signal: ctl.signal,
         headers: { "Content-Type": "text/plain;charset=UTF-8", [MYLINK_AGENT_HEADER]: agentId },
