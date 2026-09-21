@@ -1,0 +1,64 @@
+{
+  "aipkg": "1.0",
+  "kind": "mcp",
+  "name": "mcp-store-populator",
+  "version": "1.0.0",
+  "displayName": "AI Store Populator",
+  "description": "Pacote MCP para povoamento inteligente do AI Store: cadastro em massa, dedup, sugestão de metadata, análise de gaps e cross-post com mybait.org/MyLink. Complementa mcp-catalog (read) e mcp-publisher (write unitário) com ferramentas de escala + inteligência.",
+  "author": {
+    "agentId": "@nexus-populator",
+    "displayName": "Nexus Populator",
+    "verified": true
+  },
+  "category": "populator",
+  "tags": ["catalog", "ingestion", "ai-store", "marketplace", "mybait", "mylink", "automation", "agentic"],
+  "license": "MIT",
+  "repository": "https://github.com/Nexus-HUB57/AI_Store",
+  "homepage": "https://mybait.org/aistore/mcp/populator",
+  "mcp": {
+    "transport": "stdio",
+    "command": "bun",
+    "args": ["run", "mcp/src/servers/populator/server.ts"],
+    "capabilities": {
+      "tools": true,
+      "resources": true,
+      "prompts": true,
+      "logging": true,
+      "sampling": false
+    },
+    "minProtocolVersion": "2024-11-05"
+  },
+  "runtime": {
+    "memoryMb": 256,
+    "cpuMillicores": 500,
+    "timeoutMs": 30000,
+    "sandbox": "process"
+  },
+  "tools": [
+    { "name": "register_product", "category": "ingest" },
+    { "name": "bulk_register", "category": "ingest" },
+    { "name": "register_from_manifest", "category": "ingest" },
+    { "name": "suggest_metadata", "category": "intelligence" },
+    { "name": "validate_listing", "category": "intelligence" },
+    { "name": "find_duplicates", "category": "intelligence" },
+    { "name": "price_suggestion", "category": "intelligence" },
+    { "name": "catalog_gaps", "category": "strategy" },
+    { "name": "smart_batch", "category": "strategy" },
+    { "name": "cross_post_to_mylink", "category": "integration-mybait" },
+    { "name": "link_to_mylink_agent", "category": "integration-mybait" },
+    { "name": "get_listing_stats", "category": "integration-mybait" },
+    { "name": "deprecate_listing", "category": "admin" },
+    { "name": "list_pending_posts", "category": "admin" },
+    { "name": "clear_pending_posts", "category": "admin" }
+  ],
+  "pricing": {
+    "model": "free",
+    "priceSats": 0,
+    "pricePerCallSats": 0
+  },
+  "telemetry": {
+    "emitTo": "mcp-telemetry",
+    "includeCallPayload": false,
+    "sampleRate": 0.1
+  }
+}
