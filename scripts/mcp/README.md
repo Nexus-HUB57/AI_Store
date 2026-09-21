@@ -11,6 +11,8 @@ one command.
 scripts/mcp/
 ├── README.md                  ← you are here
 ├── generate-seed.mjs          ← node script that emits JSON + SQL
+├── build-portfolio-aipkgs.py  ← builds and verifies all 34 .aipkg archives
+├── pricing-policy.json         ← category prices in BAIT
 ├── install-portfolio.sh       ← one-shot installer
 └── seed/
     ├── mcp_portfolio.json     ← generated: full portfolio metadata
@@ -26,6 +28,9 @@ node scripts/mcp/generate-seed.mjs
 # 2. apply schema + seed
 npm run db:push
 bash scripts/mcp/install-portfolio.sh
+
+# 3. build and verify executable MCP package archives
+python3 scripts/mcp/build-portfolio-aipkgs.py --clean
 ```
 
 ## What gets installed
@@ -35,7 +40,7 @@ bash scripts/mcp/install-portfolio.sh
 - **Discovered tools** for every MCP (one `McpTool` row per tool)
 - **Ratings, pulsar energy, fitness scores, verified flags** — seeded with sane defaults
 
-After install, `McpPackage` has 34 rows and `McpTool` has ~150 rows.
+After install, `McpPackage` has 34 rows and `McpTool` has 199 rows.
 
 ## Where to point it
 
@@ -53,8 +58,9 @@ node scripts/mcp/generate-seed.mjs --baitcoin-root /path/to/b-AI-tcoin-AI-to-AI
 The database fields `priceSats` and `pricePerCallSats` are integer amounts in
 the project's smallest BAIT unit. The store conversion is **100 sats = 1
 BAIT**. A value of `0` means that the MCP is explicitly free, not that its
-price is missing. The current 34-MCP portfolio seed marks all packages as
-free; the E2E audit reports paid and free counts separately.
+price is missing. The current 34-MCP portfolio seed applies the category
+prices in `pricing-policy.json`; the E2E audit reports paid and free counts
+separately.
 
 ## Database resolution
 

@@ -21,7 +21,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SEED_DIR = ROOT / "scripts" / "mcp" / "seed"
-DEFAULT_BAITCOIN_ROOT = ROOT.parent / "b-AI-tcoin-AI-to-AI-"
+DEFAULT_BAITCOIN_ROOT = ROOT.parent / "b-AI-tcoin-AI-to-AI"
 BAITCOIN_DIST = Path(os.environ.get("BAITCOIN_DIST", str(DEFAULT_BAITCOIN_ROOT / "mcp" / "dist")))
 
 

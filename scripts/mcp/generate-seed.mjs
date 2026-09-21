@@ -36,6 +36,7 @@ const portfolioCandidates = [
   path.join(baitcoinRoot, "mcp", "seed", "portfolio-cross-repo.json"),
 ];
 const seedDir = path.join(storeRoot, "scripts", "mcp", "seed");
+const pricingPolicy = JSON.parse(await readFile(path.join(storeRoot, "scripts", "mcp", "pricing-policy.json"), "utf-8"));
 
 let portfolioPath;
 for (const candidate of portfolioCandidates) {
@@ -57,6 +58,20 @@ if (!Array.isArray(sourcePackages) || sourcePackages.length === 0) {
 const parseTools = (m) => {
   if (Array.isArray(m.tools)) return m.tools;
   try { return JSON.parse(m.toolsJson ?? "[]"); } catch { return []; }
+};
+const pricingFor = (category) => {
+  const activationBait = pricingPolicy.categories[category] ?? pricingPolicy.defaultActivationBait;
+  const priceSats = Math.round(activationBait * pricingPolicy.satsPerBait);
+  const pricePerCallSats = Math.max(1, Math.round(priceSats * pricingPolicy.callRate));
+  return { model: pricingPolicy.pricingModel, priceSats, pricePerCallSats };
+};
+const pricedManifest = (m) => {
+  let manifest;
+  try { manifest = typeof m.manifestJson === "string" ? JSON.parse(m.manifestJson) : { ...m }; }
+  catch { manifest = { ...m }; }
+  const pricing = pricingFor(m.category);
+  manifest.pricing = { model: pricing.model, priceSats: pricing.priceSats, pricePerCallSats: pricing.pricePerCallSats };
+  return JSON.stringify(manifest);
 };
 
 await mkdir(seedDir, { recursive: true });
@@ -85,11 +100,11 @@ const seedJson = {
     args: m.mcp?.args ?? m.args ?? [],
     envSchema: m.mcp?.env ?? m.envSchema ?? {},
     capabilities: m.mcp?.capabilities ?? m.capabilities ?? {},
-    manifestJson: typeof m.manifestJson === "string" ? m.manifestJson : JSON.stringify(m),
+    manifestJson: pricedManifest(m),
     toolsJson: JSON.stringify(parseTools(m)),
-    pricingModel: m.pricing?.model ?? m.pricingModel ?? "free",
-    priceSats: m.pricing?.priceSats ?? m.priceSats ?? 0,
-    pricePerCallSats: m.pricing?.pricePerCallSats ?? m.pricePerCallSats ?? 0,
+    pricingModel: pricingFor(m.category).model,
+    priceSats: pricingFor(m.category).priceSats,
+    pricePerCallSats: pricingFor(m.category).pricePerCallSats,
     verified: m.author?.verified ?? m.verified ?? true,
     featured: ["oracle", "defi", "embeddings", "browser", "deploy"].includes(m.category),
     pulsarEnergy: 95.0,
@@ -292,6 +307,13 @@ const seedJson = {
     },
   ],
 };
+
+for (const packageEntry of [...seedJson.packages, ...seedJson.storeMcpServers]) {
+  const pricing = pricingFor(packageEntry.category);
+  packageEntry.pricingModel = pricing.model;
+  packageEntry.priceSats = pricing.priceSats;
+  packageEntry.pricePerCallSats = pricing.pricePerCallSats;
+}
 
 await writeFile(path.join(seedDir, "mcp_portfolio.json"), JSON.stringify(seedJson, null, 2));
 console.log(`✓ wrote ${seedDir}/mcp_portfolio.json (${seedJson.totalServers} baitcoin + ${seedJson.storeMcpServers.length} store = ${seedJson.totalServers + seedJson.storeMcpServers.length} total)`);
