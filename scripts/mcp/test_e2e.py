@@ -13,6 +13,7 @@ Run:
 import argparse
 import hashlib
 import json
+import os
 import sqlite3
 import sys
 import zipfile
@@ -20,7 +21,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SEED_DIR = ROOT / "scripts" / "mcp" / "seed"
-BAITCOIN_DIST = Path("/workspace/baitcoin/mcp/dist")
+DEFAULT_BAITCOIN_ROOT = ROOT.parent / "b-AI-tcoin-AI-to-AI-"
+BAITCOIN_DIST = Path(os.environ.get("BAITCOIN_DIST", str(DEFAULT_BAITCOIN_ROOT / "mcp" / "dist")))
 
 
 # ────────────────────── Prisma schema (subset needed for populate.sql) ──────────────────────
@@ -245,7 +247,24 @@ def main():
     else:
         failures.append(f"{bad_json} packages have invalid JSON in manifestJson")
 
-    # ────────────────────── Step 9: .aipkg integrity check ──────────────────────
+    # ────────────────────── Step 9: pricing metadata ──────────────────────
+    pricing_rows = conn.execute(
+        "SELECT pricingModel, COUNT(*), COALESCE(SUM(CASE WHEN priceSats > 0 THEN 1 ELSE 0 END), 0) "
+        "FROM McpPackage GROUP BY pricingModel ORDER BY pricingModel"
+    ).fetchall()
+    invalid_prices = conn.execute(
+        "SELECT COUNT(*) FROM McpPackage WHERE priceSats < 0 OR pricePerCallSats < 0"
+    ).fetchone()[0]
+    if invalid_prices:
+        failures.append(f"{invalid_prices} packages have negative BAIT pricing")
+    else:
+        paid = conn.execute("SELECT COUNT(*) FROM McpPackage WHERE priceSats > 0").fetchone()[0]
+        free = conn.execute("SELECT COUNT(*) FROM McpPackage WHERE priceSats = 0").fetchone()[0]
+        print(f"✓ pricing metadata valid: {paid} paid / {free} free (priceSats; 100 sats = 1 BAIT)")
+        for model, total, paid_model in pricing_rows:
+            print(f"  · {model}: {total} packages, {paid_model} with priceSats > 0")
+
+    # ────────────────────── Step 10: .aipkg integrity check ──────────────────────
     print()
     if baitcoin_dist.exists():
         aipkgs = sorted(baitcoin_dist.glob("*.aipkg"))
@@ -303,12 +322,12 @@ def main():
             print(f"     • {f}")
         sys.exit(1)
     else:
-        print("  ✅ E2E PASSED — portfolio is production-ready")
+        print("  ✅ E2E PASSED — portfolio seed is valid")
         print()
         print(f"     McpPackage: {pkg_count}")
         print(f"     McpTool:    {tool_count}")
         print(f"     Categories: {len(rows)}")
-        print(f"     .aipkg:     {len(aipkgs) if baitcoin_dist.exists() else 'n/a'}")
+        print(f"     .aipkg:     {len(aipkgs) if baitcoin_dist.exists() else 'not verified (dist unavailable)'}")
         sys.exit(0)
 
 

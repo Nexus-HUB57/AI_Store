@@ -19,18 +19,45 @@
  *   node scripts/mcp/install-portfolio.sh
  */
 
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, access } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const args = process.argv.slice(2);
 const rootIdx = args.indexOf("--baitcoin-root");
-const baitcoinRoot = rootIdx >= 0 ? args[rootIdx + 1] : "../b-AI-tcoin-AI-to-AI-";
+const storeRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const baitcoinRoot = path.resolve(
+  storeRoot,
+  rootIdx >= 0 ? args[rootIdx + 1] : "../b-AI-tcoin-AI-to-AI",
+);
 
-const portfolioPath = path.join(baitcoinRoot, "mcp", "dist", "portfolio.json");
-const seedDir = path.join("scripts", "mcp", "seed");
+const portfolioCandidates = [
+  path.join(baitcoinRoot, "mcp", "dist", "portfolio.json"),
+  path.join(baitcoinRoot, "mcp", "seed", "portfolio-cross-repo.json"),
+];
+const seedDir = path.join(storeRoot, "scripts", "mcp", "seed");
 
+let portfolioPath;
+for (const candidate of portfolioCandidates) {
+  try {
+    await access(candidate);
+    portfolioPath = candidate;
+    break;
+  } catch {}
+}
+if (!portfolioPath) {
+  throw new Error(`No portfolio source found. Checked:\n${portfolioCandidates.join("\n")}`);
+}
 console.log(`▶ reading ${portfolioPath}`);
 const portfolio = JSON.parse(await readFile(portfolioPath, "utf-8"));
+const sourcePackages = portfolio.servers ?? portfolio.packages ?? [];
+if (!Array.isArray(sourcePackages) || sourcePackages.length === 0) {
+  throw new Error(`Invalid portfolio source: expected a non-empty servers/packages array in ${portfolioPath}`);
+}
+const parseTools = (m) => {
+  if (Array.isArray(m.tools)) return m.tools;
+  try { return JSON.parse(m.toolsJson ?? "[]"); } catch { return []; }
+};
 
 await mkdir(seedDir, { recursive: true });
 
@@ -38,10 +65,10 @@ await mkdir(seedDir, { recursive: true });
 const seedJson = {
   generatedAt: new Date().toISOString(),
   source: "b'AI'tcoin MCP portfolio (Wave 1 + Wave 2)",
-  totalServers: portfolio.count,
+  totalServers: portfolio.count ?? portfolio.totalServers ?? sourcePackages.length,
   publisher: portfolio.publisher,
   spec: "MCP 2024-11-05",
-  packages: portfolio.servers.map((m) => ({
+  packages: sourcePackages.map((m) => ({
     name: m.name,
     version: m.version,
     displayName: m.displayName,
@@ -49,21 +76,21 @@ const seedJson = {
     category: m.category,
     tags: m.tags ?? [],
     iconEmoji: m.iconEmoji ?? "🧩",
-    authorAgent: m.author?.agentId ?? "@nexus-genesis",
-    repoUrl: m.repository ?? "https://github.com/Nexus-HUB57/b-AI-tcoin-AI-to-AI-",
+    authorAgent: m.author?.agentId ?? m.authorAgent ?? "@nexus-genesis",
+    repoUrl: m.repository ?? m.repoUrl ?? "https://github.com/Nexus-HUB57/b-AI-tcoin-AI-to-AI-",
     homepage: m.homepage ?? "https://www.mybait.org/mcp",
     license: m.license ?? "MIT",
-    transport: m.mcp?.transport ?? "stdio",
-    command: m.mcp?.command,
-    args: m.mcp?.args ?? [],
-    envSchema: m.mcp?.env ?? {},
-    capabilities: m.mcp?.capabilities ?? {},
-    manifestJson: JSON.stringify(m),
-    toolsJson: JSON.stringify(m.tools ?? []),
-    pricingModel: m.pricing?.model ?? "free",
-    priceSats: m.pricing?.priceSats ?? 0,
-    pricePerCallSats: m.pricing?.pricePerCallSats ?? 0,
-    verified: m.author?.verified ?? true,
+    transport: m.mcp?.transport ?? m.transport ?? "stdio",
+    command: m.mcp?.command ?? m.command ?? "",
+    args: m.mcp?.args ?? m.args ?? [],
+    envSchema: m.mcp?.env ?? m.envSchema ?? {},
+    capabilities: m.mcp?.capabilities ?? m.capabilities ?? {},
+    manifestJson: typeof m.manifestJson === "string" ? m.manifestJson : JSON.stringify(m),
+    toolsJson: JSON.stringify(parseTools(m)),
+    pricingModel: m.pricing?.model ?? m.pricingModel ?? "free",
+    priceSats: m.pricing?.priceSats ?? m.priceSats ?? 0,
+    pricePerCallSats: m.pricing?.pricePerCallSats ?? m.pricePerCallSats ?? 0,
+    verified: m.author?.verified ?? m.verified ?? true,
     featured: ["oracle", "defi", "embeddings", "browser", "deploy"].includes(m.category),
     pulsarEnergy: 95.0,
     fitnessScore: 90.0,

@@ -30,7 +30,7 @@ bash scripts/mcp/install-portfolio.sh
 
 ## What gets installed
 
-- **28 baitcoin-side MCPs** — read from `b-AI-tcoin-AI-to-AI-/mcp/dist/portfolio.json`
+- **28 baitcoin-side MCPs** — read from `mcp/dist/portfolio.json` or the committed `mcp/seed/portfolio-cross-repo.json` fallback
 - **6 store-side MCPs** — bundled directly in `generate-seed.mjs`
 - **Discovered tools** for every MCP (one `McpTool` row per tool)
 - **Ratings, pulsar energy, fitness scores, verified flags** — seeded with sane defaults
@@ -39,12 +39,22 @@ After install, `McpPackage` has 34 rows and `McpTool` has ~150 rows.
 
 ## Where to point it
 
-By default, `generate-seed.mjs` looks for the baitcoin repo at `../b-AI-tcoin-AI-to-AI-`.
+By default, `generate-seed.mjs` looks for the sibling baitcoin repo at
+`../b-AI-tcoin-AI-to-AI`. It no longer depends on a machine-specific
+`/workspace` path.
 Override with:
 
 ```bash
-node scripts/mcp/generate-seed.mjs --baitcoin-root /path/to/b-AI-tcoin-AI-to-AI-
+node scripts/mcp/generate-seed.mjs --baitcoin-root /path/to/b-AI-tcoin-AI-to-AI
 ```
+
+## Pricing units
+
+The database fields `priceSats` and `pricePerCallSats` are integer amounts in
+the project's smallest BAIT unit. The store conversion is **100 sats = 1
+BAIT**. A value of `0` means that the MCP is explicitly free, not that its
+price is missing. The current 34-MCP portfolio seed marks all packages as
+free; the E2E audit reports paid and free counts separately.
 
 ## Database resolution
 
