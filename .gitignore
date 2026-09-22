@@ -71,3 +71,8 @@ deploy/standalone/
 deploy/aistore-codebase.tar.gz
 deploy/standalone/
 deploy/aistore-codebase.tar.gz
+
+# MCP runtime artifacts (regenerated on every dev start)
+/data/
+/logs/
+

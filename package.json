@@ -32,10 +32,11 @@
     "mcp:test": "bun run mcp/tests/e2e.mjs",
     "mcp:list": "ls mcp/src/servers",
     "mcp:pack": "node scripts/pack-aipkg.mjs",
-    "mcp:health": "curl -s http://localhost:3000/api/mcp/health"
+    "mcp:health": "curl -s http://localhost:3000/api/mcp/health",
+    "mcp:seed": "tsx prisma/seed-mcp.ts"
   },
   "dependencies": {
-    "@prisma/client": "^6.11.1",
+    "@prisma/client": "^6.19.3",
     "@radix-ui/react-dialog": "^1.1.14",
     "@radix-ui/react-label": "^2.1.7",
     "@radix-ui/react-progress": "^1.1.7",

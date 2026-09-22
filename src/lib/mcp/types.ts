@@ -1,0 +1,1 @@
+../../../mcp/src/lib/mcp/types.ts
