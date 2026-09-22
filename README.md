@@ -826,6 +826,53 @@ Tests S4.2/S4.3 in `scripts/e2e-v5.sh` used the shared cookie jar (authenticated
 
 ---
 
+## BAIT Ecosystem Audit — Devs PHD Level
+
+> **Source:** `Auditoria_BAIT_22.09.txt` — MyLink Fund PhD Audit  
+> **Full checklist:** [`DEVS_PHD_CHECKLIST.md`](./DEVS_PHD_CHECKLIST.md)
+
+### Critical Findings
+
+| Area        | Finding                                | Risk     | Vector                               |
+| ----------- | -------------------------------------- | -------- | ------------------------------------ |
+| Contracts   | `pause()` monárquico sem timelock      | CRITICAL | Rug pull / congelamento irreversível |
+| Contracts   | Bridge invariante off-chain only       | CRITICAL | Mint sem lastro on-chain             |
+| OPSEC       | Credenciais em docs/histórico          | CRITICAL | Comprometimento total do ecossistema |
+| Deploy      | Bug `DeployBAIT.s.sol:26` (bridgeLock) | HIGH     | Incompatibilidade estrutural         |
+| Claims      | Uso indevido "CertiK"                  | HIGH     | Misrepresentation, rejeição CEX      |
+| Claims      | Divergência zkML-PoUW (docs vs code)   | HIGH     | Marketing vs implementação           |
+| Regulatório | Founders Faucet Cron + Staking APY     | HIGH     | Security sob Howey Test              |
+
+### Roadmap by Phase
+
+| Phase | Focus              | Key Actions                                                                          |
+| ----- | ------------------ | ------------------------------------------------------------------------------------ |
+| P0    | Contenção Imediata | BFG expurgo, rotação de chaves, branch protection, remoção CertiK                    |
+| P1    | DevSecOps          | gitleaks + trufflehog pre-commit, modularização main_daemon.py, .mailmap             |
+| P2    | Smart Contracts    | Timelock 48h, EIP-712 bridge, Circuit Breaker, Slither/Echidna, DeployBAIT fix       |
+| P3    | A2A Compliance     | Schema JSON unificado, SHA-256 hash proofs, Webhook alerts, FoundersVesting on-chain |
+| P4    | Governance E2E     | On-Chain snapshot, compliance@mybait.org, Bug Bounty, Data Room                      |
+
+### Smart Contract Corrections (Proposed)
+
+**BAITBridge.sol** — EIP-712 + Circuit Breaker + Invariante On-Chain:
+
+- `userNonces[address]` tracking + `processedHashes[bytes32]` replay protection
+- `dailyVolumeLimit` with 24h reset
+- `if (totalMinted > totalLocked) revert InvariantViolation()` enforced in bytecode
+
+**BAITToken.sol** — Timelock on `pause()`:
+
+- `onlyTimelock` modifier requiring `TimelockController` (48h delay)
+- Multisig 3-de-5 for administrative functions
+
+**FoundersVesting.sol** — Replace cron with on-chain linear vesting:
+
+- OpenZeppelin `VestingWallet` pattern with cliff period
+- Revocation of direct mint permissions from old wallets
+
+---
+
 ## Project Statistics
 
 ```
