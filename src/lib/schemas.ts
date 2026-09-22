@@ -19,6 +19,7 @@ export const purchaseSchema = z.object({
   totalSats: z.number().int().min(0),
   agentId: z.string().min(1, 'Agente não autenticado'),
   discountTotal: z.number().int().min(0).default(0),
+  idempotencyKey: z.string().trim().min(16).max(128).optional(),
 })
 
 // ─── Review ───

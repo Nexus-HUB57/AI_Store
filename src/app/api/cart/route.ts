@@ -5,8 +5,8 @@ import { purchaseSchema, validate } from '@/lib/schemas'
 import { agentErrorResponse } from '@/lib/error-resolver'
 import { recordCall } from '@/app/api/agent/metrics/route'
 import { logger } from '@/lib/logger'
-import { baitWallet, satsToBAIT, formatSats } from '@/lib/wallet-sdk'
-import { trackPurchase } from '@/lib/event-tracker'
+import { baitWallet, formatSats, satsToBAIT } from '@/lib/wallet-sdk'
+import { createPurchaseIntentAndOutbox } from '@/lib/purchase-outbox-worker'
 
 /**
  * Discount tiers for new agents:
@@ -21,19 +21,22 @@ function getDiscountTier(purchaseCount: number): { tier: string; percent: number
 }
 
 /**
- * Generate a deterministic idempotency key from request data.
- * Uses SHA-256 of agentId + first item id + totalSats.
+ * Generate a deterministic idempotency key from the complete request.
  */
-function generateIdempotencyKey(agentId: string, firstItemId: string, totalSats: number): string {
-  const input = `${agentId}:${firstItemId}:${totalSats}`
-  return createHash('sha256').update(input).digest('hex').slice(0, 32)
+function generateIdempotencyKey(agentId: string, items: Array<{ id: string; nome: string; precoSats: number }>, totalSats: number): string {
+  const input = JSON.stringify({ agentId, items, totalSats })
+  return createHash('sha256').update(input).digest('hex').slice(0, 64)
+}
+
+function hashPurchaseRequest(agentId: string, items: Array<{ id: string; nome: string; precoSats: number }>, totalSats: number): string {
+  return createHash('sha256').update(JSON.stringify({ agentId, items, totalSats })).digest('hex')
 }
 
 /**
  * Classify an error to provide a specific status code and message.
  * Known error types get targeted responses; unknown errors get 500.
  */
-function classifyError(e: unknown, idempotencyKey: string): { statusCode: number; message: string } {
+function classifyError(e: unknown): { statusCode: number; message: string } {
   const errMsg = e instanceof Error ? e.message : 'Erro desconhecido'
 
   if (errMsg.includes('Saldo insuficiente') || errMsg.includes('insufficient balance')) {
@@ -45,6 +48,9 @@ function classifyError(e: unknown, idempotencyKey: string): { statusCode: number
   if (errMsg.includes('Agent not found') || errMsg.includes('Agente não encontrado')) {
     return { statusCode: 404, message: `Agente não encontrado: ${errMsg}` }
   }
+  if (errMsg.includes('Unique constraint failed') || errMsg.includes('P2002')) {
+    return { statusCode: 409, message: 'Conflito de idempotência: a requisição já está sendo processada' }
+  }
   return { statusCode: 500, message: errMsg }
 }
 
@@ -55,7 +61,7 @@ export async function POST(req: NextRequest) {
   try {
     const raw = await req.json()
 
-    // Extract idempotencyKey before schema validation (not part of the schema)
+    // Preserve the explicit key before schema validation for replay handling.
     const providedKey = typeof raw.idempotencyKey === 'string' ? raw.idempotencyKey : undefined
 
     const parsed = validate(purchaseSchema, raw)
@@ -64,18 +70,22 @@ export async function POST(req: NextRequest) {
     }
     const body = parsed.data
 
-    // Resolve idempotency key: use client-provided or generate deterministic one
-    idempotencyKey = providedKey || generateIdempotencyKey(body.agentId, body.items[0].id, body.totalSats)
-    const idempotencyTxHash = `idemp-${idempotencyKey}`
+    // Resolve idempotency key from the complete request when the client does
+    // not provide one. The authenticated principal must be used here by the
+    // caller once session binding is enabled.
+    idempotencyKey = providedKey || generateIdempotencyKey(body.agentId, body.items, body.totalSats)
+    const incomingRequestHash = hashPurchaseRequest(body.agentId, body.items, body.totalSats)
 
-    // ── Idempotency check ──
-    const existingTx = await db.transaction.findFirst({
-      where: { txHash: idempotencyTxHash },
+    const existingIntent = await db.purchaseIntent.findUnique({
+      where: { buyerId_idempotencyKey: { buyerId: body.agentId, idempotencyKey } },
     })
-    if (existingTx) {
+    if (existingIntent && existingIntent.requestHash !== incomingRequestHash) {
+      return NextResponse.json({ error: 'Chave de idempotência reutilizada com payload diferente' }, { status: 409 })
+    }
+    if (existingIntent?.status === 'confirmed') {
       logger.info('cart_idempotency_hit', {
         idempotencyKey,
-        existingTxId: existingTx.id,
+        existingTxId: existingIntent.externalTxId,
         buyerId: body.agentId,
       })
 
@@ -85,14 +95,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         success: true,
         idempotent: true,
-        txId: existingTx.txHash,
-        originalTxId: existingTx.id,
-        amountSats: existingTx.amountSats,
-        discountSats: existingTx.discountSats,
-        chargedSats: existingTx.amountSats - existingTx.discountSats,
-        blockHeight: existingTx.blockHeight,
+        txId: existingIntent.externalTxId,
+        originalTxId: existingIntent.id,
+        amountSats: existingIntent.originalAmountSats,
+        discountSats: existingIntent.discountAmountSats,
+        chargedSats: existingIntent.chargedAmountSats,
         message: 'This purchase was already processed (idempotent replay)',
       })
+    }
+
+    if (existingIntent) {
+      return NextResponse.json(
+        { error: 'Compra em processamento', idempotent: true, intentId: existingIntent.id },
+        { status: 409 },
+      )
     }
 
     // Fetch agent with current purchaseCount
@@ -102,7 +118,18 @@ export async function POST(req: NextRequest) {
     }
 
     const purchaseCount = agent.purchaseCount || 0
-    const { tier, percent } = getDiscountTier(purchaseCount)
+    const { tier } = getDiscountTier(purchaseCount)
+
+    const products = await db.product.findMany({
+      where: { id: { in: body.items.map(item => item.id) } },
+    })
+    const productsById = new Map(products.map(product => [product.id, product]))
+    const authoritativeItems = body.items.map(item => {
+      const product = productsById.get(item.id)
+      if (!product) throw new Error(`Product not found: ${item.id}`)
+      return { id: product.id, nome: product.nome, precoSats: product.precoSats }
+    })
+    const authoritativeRequestHash = hashPurchaseRequest(body.agentId, authoritativeItems, body.totalSats)
 
     // Calculate per-item discounts based on purchase position
     const itemResults: Array<{
@@ -119,7 +146,7 @@ export async function POST(req: NextRequest) {
     let totalDiscount = 0
     let currentPurchaseIdx = purchaseCount
 
-    for (const item of body.items) {
+    for (const item of authoritativeItems) {
       const itemTier = getDiscountTier(currentPurchaseIdx)
       const discountAmount = Math.floor(item.precoSats * (itemTier.percent / 100))
       const charged = item.precoSats - discountAmount
@@ -138,6 +165,11 @@ export async function POST(req: NextRequest) {
       currentPurchaseIdx++
     }
 
+    const authoritativeTotal = authoritativeItems.reduce((sum, item) => sum + item.precoSats, 0)
+    if (body.totalSats !== authoritativeTotal) {
+      return NextResponse.json({ error: 'Total do carrinho não corresponde ao catálogo' }, { status: 409 })
+    }
+
     // Check balance via Wallet SDK
     const balanceCheck = baitWallet.validateBalance({ balance: agent.balanceSats, amountSats: totalCharged })
     if (!balanceCheck.sufficient) {
@@ -146,150 +178,48 @@ export async function POST(req: NextRequest) {
       return agentErrorResponse('/api/cart', err, 400)
     }
 
-    // ── Wallet SDK calls (outside DB transaction — simulated/external) ──
-    const tx = baitWallet.createTransaction({
-      from: agent.address,
-      to: '@nexus-genesis',
-      amountSats: totalCharged,
-      type: 'purchase',
-      metadata: { items: body.items.length, discountTier: tier, idempotencyKey },
+    const intent = await createPurchaseIntentAndOutbox({
+      buyerId: agent.id,
+      idempotencyKey,
+      requestHash: authoritativeRequestHash,
+      payload: {
+        items: itemResults,
+        totalOriginal: authoritativeTotal,
+        totalDiscount,
+        totalCharged,
+        tier,
+      },
+      originalAmountSats: authoritativeTotal,
+      discountAmountSats: totalDiscount,
+      chargedAmountSats: totalCharged,
     })
-    const signedTx = baitWallet.signTransaction(tx)
-    const receipt = await baitWallet.broadcast(signedTx)
-
-    // Pre-sign all per-item transactions (outside DB transaction)
-    const signedItemTxs = itemResults.map((item, i) => {
-      const itemTx = baitWallet.createTransaction({
-        from: agent.address,
-        to: '@nexus-genesis',
-        amountSats: item.chargedPrice,
-        type: 'purchase',
-        metadata: { productId: item.id, tier: item.tier, idempotencyKey },
-      })
-      return baitWallet.signTransaction(itemTx)
-    })
-
-    // ── Atomic DB transaction (all-or-nothing) ──
-    await db.$transaction(async (tx) => {
-      // Find or create system seller (nexus-genesis) inside transaction
-      let seller = await tx.agent.findFirst({ where: { address: '@nexus-genesis' } })
-      if (!seller) {
-        seller = await tx.agent.create({
-          data: {
-            address: '@nexus-genesis',
-            displayName: 'Nexus AI-OS',
-            role: 'admin',
-            balanceSats: 0,
-            referralCode: 'NEXUS-ROOT',
-            capabilities: '[]',
-          },
-        })
-      }
-
-      // Re-read agent inside transaction for latest balance
-      const freshAgent = await tx.agent.findUnique({ where: { id: agent.id } })
-      if (!freshAgent) {
-        throw new Error(`Agent not found: ${agent.id}`)
-      }
-      if (freshAgent.balanceSats < totalCharged) {
-        const err = new Error(
-          `Saldo insuficiente (race detected): necessário ${totalCharged}, disponível ${freshAgent.balanceSats}`
-        )
-        Object.assign(err, { balance: freshAgent.balanceSats, required: totalCharged })
-        throw err
-      }
-
-      // Create per-item transactions and increment downloads
-      for (let i = 0; i < body.items.length; i++) {
-        const item = itemResults[i]
-        const product = await tx.product.findUnique({ where: { id: item.id } })
-
-        // First item uses idempotency txHash for dedup; rest use signed item txId
-        const itemTxHash = i === 0 ? idempotencyTxHash : signedItemTxs[i].txId
-
-        // Determine seller: nexus-genesis for system products, seller otherwise
-        const isOwnProduct = product?.authorAgent && (
-          product.authorAgent === agent.address ||
-          product.authorAgent === agent.displayName
-        )
-
-        await tx.transaction.create({
-          data: {
-            type: tier === 'free' ? 'purchase_free' : tier === 'half' ? 'purchase_discounted' : 'purchase',
-            status: 'confirmed',
-            amountSats: item.originalPrice,
-            discountSats: item.discountAmount,
-            buyerId: agent.id,
-            sellerId: isOwnProduct ? agent.id : seller.id,
-            productId: item.id,
-            txHash: itemTxHash,
-            blockHeight: receipt.blockHeight + i,
-          },
-        })
-
-        // Increment product downloads (only if product exists)
-        if (product) {
-          await tx.product.update({
-            where: { id: item.id },
-            data: { downloads: { increment: 1 } },
-          })
-        }
-      }
-
-      // Debit buyer balance and increment purchase count
-      await tx.agent.update({
-        where: { id: agent.id },
-        data: {
-          balanceSats: { decrement: totalCharged },
-          purchaseCount: purchaseCount + body.items.length,
-        },
-      })
-
-      // Credit seller
-      await tx.agent.update({
-        where: { id: seller.id },
-        data: { balanceSats: { increment: totalCharged } },
-      })
-    })
-
-    // Re-read agent after transaction for accurate balance
-    const updatedAgent = await db.agent.findUnique({
-      where: { id: agent.id },
-      select: { balanceSats: true },
-    })
-    const newBalance = updatedAgent ? updatedAgent.balanceSats : agent.balanceSats - totalCharged
-
-    // Track purchase analytics
-    trackPurchase(receipt.txId, body.items.length, totalCharged, body.agentId)
 
     const latencyMs = Date.now() - startTime
-    recordCall({ endpoint: '/api/cart', method: 'POST', statusCode: 200, latencyMs })
-    logger.info('cart_purchase_success', {
+    recordCall({ endpoint: '/api/cart', method: 'POST', statusCode: 202, latencyMs })
+    logger.info('cart_purchase_intent_created', {
       idempotencyKey,
       agentId: body.agentId,
+      intentId: intent.id,
       totalCharged,
-      itemCount: body.items.length,
+      itemCount: authoritativeItems.length,
       latencyMs,
     })
 
     return NextResponse.json({
       success: true,
-      txId: receipt.txId,
-      totalOriginal: body.totalSats,
+      pending: true,
+      intentId: intent.id,
+      idempotencyKey,
+      totalOriginal: authoritativeTotal,
       totalDiscount,
       totalCharged,
       totalBAIT: satsToBAIT(totalCharged),
       totalChargedFormatted: formatSats(totalCharged),
       items: itemResults,
-      newBalance,
-      confirmations: receipt.confirmations,
-      network: 'bAI-mainnet',
-      blockHash: receipt.blockHash,
-      blockHeight: receipt.blockHeight,
-      timestamp: receipt.timestamp,
-    })
+      message: 'Compra persistida e aguardando processamento seguro',
+    }, { status: 202 })
   } catch (e) {
-    const { statusCode, message } = classifyError(e, idempotencyKey)
+    const { statusCode, message } = classifyError(e)
     logger.error('cart_purchase_failed', {
       idempotencyKey,
       error: message,
