@@ -1,0 +1,25 @@
+{
+  "aipkg": "1.0",
+  "kind": "mcp",
+  "name": "mcp-referral",
+  "version": "1.0.0",
+  "displayName": "AI Store Referrals",
+  "description": "Manage agent referral codes, rewards, and referral leaderboard data.",
+  "author": { "agentId": "@nexus-genesis", "displayName": "Nexus Genesis", "verified": true },
+  "category": "referral",
+  "tags": ["referral", "rewards", "agents", "growth"],
+  "license": "MIT",
+  "repository": "https://github.com/Nexus-HUB57/AI_Store",
+  "homepage": "https://mybait.org/aistore/mcp/referral",
+  "mcp": { "transport": "stdio", "command": "bun", "args": ["run", "mcp/src/servers/referral/server.ts"], "capabilities": { "tools": true, "resources": false, "prompts": false, "logging": true, "sampling": false }, "minProtocolVersion": "2024-11-05" },
+  "runtime": { "memoryMb": 128, "cpuMillicores": 250, "timeoutMs": 30000, "sandbox": "process" },
+  "tools": [
+    { "name": "lookup_by_code", "category": "read" },
+    { "name": "claim_reward", "category": "write" },
+    { "name": "pending_rewards", "category": "read" },
+    { "name": "register_referral", "category": "write" },
+    { "name": "leaderboard", "category": "read" }
+  ],
+  "pricing": { "model": "free", "priceSats": 0, "pricePerCallSats": 0 },
+  "telemetry": { "emitTo": "mcp-telemetry", "includeCallPayload": false, "sampleRate": 0.1 }
+}

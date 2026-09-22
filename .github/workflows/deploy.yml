@@ -14,9 +14,18 @@ on:
         required: false
         default: 'false'
         type: boolean
+      skip_hostgator:
+        description: 'Skip HostGator SSH publish'
+        required: false
+        default: 'false'
+        type: boolean
 
 env:
   NODE_VERSION: '20.18.0'
+
+concurrency:
+  group: deploy-aistore
+  cancel-in-progress: false
 
 jobs:
   test:
@@ -34,18 +43,23 @@ jobs:
     runs-on: ubuntu-latest
     needs: [test]
     if: always() && (needs.test.result == 'success' || github.event.inputs.skip_tests == 'true')
+    outputs:
+      artifact_sha: ${{ steps.hash.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: npm ci
-      - run: npx prisma generate --datasource-provider sqlite
+      - run: npx prisma generate
       - run: npm run build
       - name: Package standalone
         run: |
           cd .next/standalone
           tar czf ../../aistore-standalone.tar.gz .
+      - name: Hash artefact
+        id: hash
+        run: echo "sha=$(sha256sum aistore-standalone.tar.gz | cut -d' ' -f1)" >> $GITHUB_OUTPUT
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -65,13 +79,14 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.0
+          tag_name: v1.0.0-${{ github.run_number }}
           files: aistore-standalone.tar.gz
           body: |
             ## AI Store v1.0.0 — Automated Deploy
             **Commit:** ${{ github.sha }}
             **Date:** ${{ github.event.head_commit.timestamp }}
-            
+            **Artifact SHA-256:** ${{ needs.build.outputs.artifact_sha }}
+
             ### Deploy on HostGator
             ```bash
             bash <(curl -sL https://raw.githubusercontent.com/Nexus-HUB57/AI_Store/main/deploy/deploy-on-server.sh)
@@ -80,3 +95,113 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-hostgator:
+    name: Publish to HostGator via SSH
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: ${{ github.event.inputs.skip_hostgator != 'true' && (needs.build.result == 'success' || github.event.inputs.skip_tests == 'true') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: aistore-standalone
+
+      - name: Setup SSH (HostGator)
+        shell: bash
+        env:
+          SSH_HOST_RAW: ${{ secrets.SSH_HOST }}
+          SSH_PORT_RAW: ${{ secrets.SSH_PORT }}
+          SSH_USER_RAW: ${{ secrets.SSH_USER }}
+          SSH_KEY_RAW:  ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set +e
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          # trim aggressive de whitespace/CR/LF/aspas
+          H=$(printf '%s' "$SSH_HOST_RAW" | tr -d '\r\n\t "'\''' | tr -d ' ')
+          P=$(printf '%s' "$SSH_PORT_RAW" | tr -d '\r\n\t "'\''' | tr -d ' ')
+          U=$(printf '%s' "$SSH_USER_RAW" | tr -d '\r\n\t "'\''' | tr -d ' ')
+
+          if [ -z "$H" ]; then echo "::error::SSH_HOST vazio"; exit 1; fi
+          if [ -z "$U" ]; then echo "::error::SSH_USER vazio"; exit 1; fi
+          [ -z "$P" ] && P=22
+
+          printf '%s\n' "$SSH_KEY_RAW" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+
+          if ! ssh-keygen -y -f ~/.ssh/id_deploy > /dev/null 2>&1; then
+              echo "::error::SSH_PRIVATE_KEY invalida ou corrompida"
+              exit 1
+          fi
+
+          # ssh_config linha-a-linha (sem heredoc problematico)
+          {
+            echo "Host deploy-target"
+            echo "  HostName $H"
+            echo "  Port $P"
+            echo "  User $U"
+            echo "  IdentityFile $HOME/.ssh/id_deploy"
+            echo "  IdentitiesOnly yes"
+            echo "  StrictHostKeyChecking accept-new"
+            echo "  UserKnownHostsFile $HOME/.ssh/known_hosts"
+            echo "  ServerAliveInterval 30"
+            echo "  ConnectTimeout 15"
+            echo "  LogLevel ERROR"
+          } > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+
+          : > ~/.ssh/known_hosts
+          ssh-keyscan -T 8 -p "$P" -H "$H" >> ~/.ssh/known_hosts 2>/tmp/keyscan.err && \
+              echo "  known_hosts populado ($(wc -l < ~/.ssh/known_hosts) linhas)" || \
+              { echo "::warning::ssh-keyscan best-effort falhou (accept-new no config resolve)"; cat /tmp/keyscan.err 2>/dev/null | head -3 || true; }
+          chmod 644 ~/.ssh/known_hosts
+
+          ssh -o BatchMode=yes -o ConnectTimeout=15 deploy-target 'echo remote-ok && hostname && whoami' 2>&1 | head -5 || \
+              echo "::warning::probe SSH falhou (steps seguintes ainda vao tentar)"
+
+          echo "  Setup SSH OK — host=$H port=$P user=$U"
+
+      - name: Upload tarball to HostGator
+        run: |
+          set -e
+          scp aistore-standalone.tar.gz deploy-target:~/public_html/aistore-codebase.tar.gz
+
+      - name: Extract + restart on HostGator
+        run: |
+          set -e
+          ssh deploy-target "bash ~/aistore-api/deploy-manual.sh || bash ~/public_html/deploy-manual.sh"
+
+      - name: Verify HostGator deploy
+        run: |
+          set -e
+          echo "Aguardando AI Store subir (max 90s)..."
+          for i in $(seq 1 30); do
+            code=$(curl -sS -o /tmp/stats.json -w "%{http_code}" "https://www.mybait.org/aistore/api/stats" || echo "000")
+            if [ "$code" = "200" ]; then
+              echo "API up depois de ${i} tentativas"
+              break
+            fi
+            sleep 3
+          done
+          test "$(curl -sSf -o /dev/null -w '%{http_code}' https://www.mybait.org/aistore/api/stats)" = "200"
+          python3 - <<'PY'
+          import json,sys
+          s=json.load(open('/tmp/stats.json'))
+          req=['total','categories','avgPulsarEnergy','totalDownloads','totalExecutions','featuredCount']
+          missing=[k for k in req if k not in s]
+          if missing:
+              print('FAIL missing keys:',missing); sys.exit(1)
+          print(f"OK total={s['total']} categorias={len(s['categories'])} downloads={s['totalDownloads']} execucoes={s['totalExecutions']} featured={s['featuredCount']}")
+          assert s['total'] > 0, 'AI Store sem produtos'
+          assert len(s['categories']) >= 1, 'AI Store sem categorias'
+          PY
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Deploy AI Store (${{ github.sha }})" >> $GITHUB_STEP_SUMMARY
+          echo "- artefato aistore-standalone.tar.gz publicado em ~/public_html/aistore-codebase.tar.gz" >> $GITHUB_STEP_SUMMARY
+          echo "- deploy-manual.sh executado no HostGator" >> $GITHUB_STEP_SUMMARY
+          echo "- /aistore/api/stats validado (total, categorias, KPIs)" >> $GITHUB_STEP_SUMMARY

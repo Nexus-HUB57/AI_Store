@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ─── AI Store Nexus v1.0.0 — Stress Test Suite ───
+# ─── AI Store Nexus v2.0.0 — Stress Test Suite ───
 # Simulates concurrent load to validate stability under pressure.
 # Usage: bash scripts/stress-test.sh [BASE_URL] [CONCURRENT] [TOTAL_REQUESTS]
 #   Default: bash scripts/stress-test.sh http://localhost:3000 10 100
@@ -83,13 +83,13 @@ stress_endpoint() {
           c_failed=$((c_failed + 1))
         fi
       done
-      echo "$c_passed $c_failed $c_timeouts" > "$TMPDIR/worker_$$_${c}.txt"
+      echo "$c_passed $c_failed $c_timeouts" > "$TMPDIR/worker_$$_${name//[^a-zA-Z0-9]/_}_${c}.txt"
     ) &
   done
   wait
 
   # Aggregate results
-  for f in "$TMPDIR"/worker_*_${name//[^a-zA-Z0-9]/_}.txt; do
+  for f in "$TMPDIR"/worker_*_${name//[^a-zA-Z0-9]/_}_*.txt; do
     [ -f "$f" ] || continue
     read w_p w_f w_t < "$f"
     ep_passed=$((ep_passed + w_p))
@@ -144,8 +144,8 @@ stress_endpoint() {
 # ─── Header ───
 echo ""
 echo -e "${BOLD}══════════════════════════════════════════════════════════${NC}"
-echo -e "${BOLD}  AI Store Nexus — Stress Test Suite v1.0${NC}"
-echo -e "${BOLD}  Version: 1.0.0${NC}"
+echo -e "${BOLD}  AI Store Nexus — Stress Test Suite v2.0${NC}"
+echo -e "${BOLD}  Version: 2.0.0${NC}"
 echo -e "  Target:    ${CYAN}$BASE_URL${NC}"
 echo -e "  Config:    ${CONCURRENT} concurrent x ${TOTAL} reqs/worker = $((CONCURRENT * TOTAL)) total"
 echo -e "  Date:      $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
@@ -180,11 +180,15 @@ echo -e "${BOLD}[4/6] API /stats (DB aggregation)${NC}"
 stress_endpoint "GET /api/stats" "$BASE_URL/api/stats" "GET" "" "10" "$CONCURRENT"
 
 echo ""
-echo -e "${BOLD}[5/6] API /products (DB query + pagination)${NC}"
+echo -e "${BOLD}[5/7] API /products (DB query + pagination)${NC}"
 stress_endpoint "GET /api/products" "$BASE_URL/api/products?limit=20" "GET" "" "10" "$CONCURRENT"
 
 echo ""
-echo -e "${BOLD}[6/6] API /agent/discover (in-memory)${NC}"
+echo -e "${BOLD}[6/7] API /products MCP segment (1200 products)${NC}"
+stress_endpoint "GET /api/products MCP" "$BASE_URL/api/products?segmento=MCP_PROTOCOL_SERVERS&limit=20" "GET" "" "10" "$CONCURRENT"
+
+echo ""
+echo -e "${BOLD}[7/7] API /agent/discover (in-memory)${NC}"
 stress_endpoint "GET /api/agent/discover" "$BASE_URL/api/agent/discover" "GET" "" "$TOTAL" "$CONCURRENT"
 
 # ─── Summary ───
@@ -212,7 +216,8 @@ echo -e "${BOLD}═════════════════════�
 echo -e "  ${BOLD}Stress Test Summary${NC}"
 echo -e "  ────────────────────────────────────────────────"
 echo -e "  Total Requests:     ${BOLD}$TOTAL_REQS${NC}"
-echo -e "  Successful:         ${GREEN}$PASSED${NC} (${TOTAL_REQS -gt 0 ? $(( (PASSED * 100) / TOTAL_REQS )) : 0}%)"
+SUCCESS_PCT=0; if [ "$TOTAL_REQS" -gt 0 ]; then SUCCESS_PCT=$(( (PASSED * 100) / TOTAL_REQS )); fi
+echo -e "  Successful:         ${GREEN}$PASSED${NC} (${SUCCESS_PCT}%)"
 echo -e "  Failed/Timeouts:    ${RED}$FAILED${NC}"
 echo -e "  Duration:           ${DURATION}s"
 echo -e "  Throughput:         ${RPS} req/s"

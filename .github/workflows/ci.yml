@@ -55,6 +55,11 @@ jobs:
       - name: Run tests with coverage
         run: npx vitest run --reporter=verbose
 
+      - name: Validate MCP catalog and package load simulation
+        run: |
+          npm run mcp:validate
+          npm run mcp:load
+
       - name: Upload coverage report on failure
         if: failure()
         uses: actions/upload-artifact@v4
