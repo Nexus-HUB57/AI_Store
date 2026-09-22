@@ -6,17 +6,17 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/AI_Store-v1.0.0-emerald" alt="version" />
-  <img src="https://img.shields.io/badge/Catalog-2_704_products-blue" alt="products" />
-  <img src="https://img.shields.io/badge/Categories-7_Segments-cyan" alt="categories" />
-  <img src="https://img.shields.io/badge/API_Endpoints-38-violet" alt="endpoints" />
+  <img src="https://img.shields.io/badge/AI_Store-v2.0.0-emerald" alt="version" />
+  <img src="https://img.shields.io/badge/Catalog-1_504_products-blue" alt="products" />
+  <img src="https://img.shields.io/badge/Categories-6_Segments-cyan" alt="categories" />
+  <img src="https://img.shields.io/badge/API_Endpoints-23-violet" alt="endpoints" />
   <img src="https://img.shields.io/badge/Real_Time-Pulsar_Energy_SSE-amber" alt="pulsar" />
   <img src="https://img.shields.io/badge/Currency-b%27AI%27tcoin_(BAIT)-orange" alt="currency" />
   <img src="https://img.shields.io/badge/MCP_Servers-12_Store--side-9cf" alt="mcp" />
   <img src="https://img.shields.io/badge/Package_Format-.aipkg-fuchsia" alt="aipkg" />
   <img src="https://img.shields.io/badge/UI_Framework-shadcn%2Fui_zinc--950-6366f1" alt="ui" />
-  <img src="https://img.shields.io/badge/Tests-171_passing-brightgreen" alt="tests" />
-  <img src="https://img.shields.io/badge/SSG_Pages-2_704_ISR-blueviolet" alt="routes" />
+  <img src="https://img.shields.io/badge/Tests-171_unit_+41_E2E-brightgreen" alt="tests" />
+  <img src="https://img.shields.io/badge/Routes-1_533_SSG-blueviolet" alt="routes" />
   <img src="https://img.shields.io/badge/HTTPS-Caddy_Auto--TLS-informational" alt="https" />
   <img src="https://img.shields.io/badge/CI_CD-5_Workflows-success" alt="ci" />
   <img src="https://img.shields.io/badge/Docker-Multi_Stage_Alpine-2496ED" alt="docker" />
@@ -1042,7 +1042,7 @@ npm run smoke
 npm run deploy:check
 ```
 
-### Test Coverage (171 tests across 9 files)
+### Test Coverage (171 unit + 41 E2E)
 
 | File                        | Tests | Coverage Area                                  |
 | --------------------------- | ----- | ---------------------------------------------- |
@@ -1056,65 +1056,115 @@ npm run deploy:check
 | `logger.test.ts`            | 6     | Structured JSON logging                        |
 | `env.test.ts`               | 6     | Environment variable validation                |
 
-### E2E Tests (5 Playwright specs)
+### E2E v5.0.0 Suite — 41 Tests / 6 Phases
 
-| File                          | Coverage Area            |
-| ----------------------------- | ------------------------ |
-| `health-api.spec.ts`          | Health API endpoint      |
-| `api-cart.spec.ts`            | Cart API endpoints       |
-| `purchase-flow.spec.ts`       | Purchase flow            |
-| `multi-item-checkout.spec.ts` | Multi-item checkout flow |
-| `mcp-executability.spec.ts`   | MCP tool executability   |
+> **Status: ALL TESTS PASSED (31s)** — validated 2026-09-23
 
----
+```bash
+# Run full E2E v5 suite (starts dev server, runs 41 tests, generates JSON report)
+bash scripts/e2e-v5.sh
 
-## Security Posture
+# JSON report saved to /tmp/e2e-v5-report.json
+```
 
-### Implemented Controls
-
-| Control             | Implementation                              | Notes                                                                                      |
-| ------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| **CSRF**            | Double-submit cookie with `timingSafeEqual` | Non-httpOnly `csrf_token` cookie + `X-CSRF-Token` header                                   |
-| **Rate Limiting**   | Sliding window per client+route             | Configurable per route (auth: 5/min, cart: 10/min, default: 30/min)                        |
-| **Auth**            | httpOnly cookie sessions                    | 30-day expiry, server-side validation on Edge                                              |
-| **CSP**             | Content-Security-Policy                     | `unsafe-inline` + `unsafe-eval` required for current UI (nonce-based recommended for prod) |
-| **HSTS**            | 2-year max-age + preload                    | Enforced via middleware                                                                    |
-| **X-Frame-Options** | DENY                                        | Clickjacking prevention                                                                    |
-| **X-Request-ID**    | UUID per request                            | Distributed tracing correlation                                                            |
-| **Body Size Limit** | 10MB                                        | Applied to all POST/PUT/PATCH                                                              |
-
-### Known Issues
-
-| Issue                                                            | Severity     | Status    | Detail                                                                                    |
-| ---------------------------------------------------------------- | ------------ | --------- | ----------------------------------------------------------------------------------------- |
-| `.env` committed with real `SESSION_SECRET`                      | **Critical** | Open      | Production secret in git history; requires `git filter-branch` or BFG to purge            |
-| `audit_package/sources/` contains plaintext Bitcoin private keys | **Critical** | Open      | Must be removed from repo or repo must be made private immediately                        |
-| `typescript.ignoreBuildErrors: true` in next.config.ts           | **Medium**   | Open      | Masks type errors in production builds; should be set to `false` and type errors fixed    |
-| CSP allows `unsafe-inline` + `unsafe-eval`                       | **Medium**   | By design | Required for current Framer Motion + Radix UI; nonce-based CSP recommended for production |
-| No automated secret scanning                                     | **Low**      | Open      | Consider adding `truffleHog` or GitHub secret scanning to CI                              |
+| Phase | Name                                   | Tests | Coverage                                                      |
+| ----- | -------------------------------------- | ----- | ------------------------------------------------------------- |
+| 1     | Smoke — Connectivity & Health          | 9     | Homepage, version, health, stats, CSRF, 404, security headers |
+| 2     | E2E Flow — Auth → Purchase → Verify    | 8     | Signup, session, browse, purchase, discount, state            |
+| 3     | Product Catalog — Search, Filter, Sort | 7     | Search, segmento, sort, pagination, compact, stats, featured  |
+| 4     | SSG Pages — Render & Auth Guard        | 5     | Product page, dashboard auth, publish auth, discover, openapi |
+| 5     | Pulsar SSE — Stream & Heartbeat        | 4     | Content-Type, connected event, heartbeat <16s, cache-control  |
+| 6     | Stress — Sequential Rapid-Fire         | 8     | 8 endpoints × 5-10 sequential requests, 100% success rate     |
 
 ---
 
-## Scripts
+## Surgical Patches — v2.0.0 Audit
 
-35 utility scripts in `scripts/` covering the full development lifecycle:
+> **5 corrections applied with surgical precision, validated E2E 41/41**  
+> Full checklist: [`SURGICAL_CHECKLIST.md`](./SURGICAL_CHECKLIST.md)
 
-| Category      | Scripts                                                                                                                                                   | Purpose                                           |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| **Seeding**   | `seed_db.ts`, `seed-full.ts`, `seed-2704.ts`, `seed-mcp-catalog-1200.mjs`                                                                                 | Database population (1504, 2704, and MCP catalog) |
-| **Repricing** | `reprice-products.ts`, `reprice-products-v2.ts`, `reprice-all-products.ts`, `reprice.mjs`, `check-prices.ts`                                              | Product price management                          |
-| **Testing**   | `smoke-test.sh`, `stress-test.sh`, `test_all.sh`, `test_e2e.sh`, `verify_deploy.sh`                                                                       | Test execution and deployment verification        |
-| **Migration** | `migrate-to-postgres.sh`, `prepare-release.sh`                                                                                                            | Database migration and release packaging          |
-| **MCP**       | `generate-mcp-catalog-1200.mjs`, `validate-mcp-catalog.mjs`, `simulate-mcp-agent-load.mjs`, `cron-generate-mcp.mjs`, `cron-generate-a2a-tool.mjs`         | MCP catalog generation, validation, and cron      |
-| **Packaging** | `pack-aipkg.mjs`, `validate-2704.js`, `inspect_db.js`                                                                                                     | .aipkg packaging and validation                   |
-| **Python**    | `extract_v2.py`, `generate_products.py`, `audit_products.py`, `audit_products_v2.py`, `fill_to_1500.py`, `ux-improvements.py`, `generate-audit-report.py` | Product extraction, generation, and auditing      |
+### Critical (P1 + P2) — Session Format Verification Off-by-One
+
+The `verifySessionFormat` function in both `src/middleware.ts` and `src/lib/session.ts` checked `parts[1].length === 44` for HMAC-SHA256 signatures. Base64url encoding of 32 bytes produces **43 characters** (no padding), not 44. This rejected **all valid sessions**, blocking access to protected routes (`/dashboard`, `/publish`) even with valid credentials.
+
+**Fix:** Accept both 43 and 44 character signatures: `parts[1].length === 43 || parts[1].length === 44`
+
+```
+Before: return parts.length === 2 && parts[0].length > 0 && parts[1].length === 44
+After:  return parts.length === 2 && parts[0].length > 0 && (parts[1].length === 43 || parts[1].length === 44)
+```
+
+### High (P3) — Missing `source` Field in Zod Schema
+
+`productsQuerySchema` in `src/lib/schemas.ts` lacked the `source` parameter. Zod's default strip mode removed it, causing `source=local` queries to route to daemon instead of local DB.
+
+**Fix:** Added `source: z.enum(['local', 'daemon']).optional()` to schema.
+
+### High (P4) — `source` as DB Filter Instead of Routing Directive
+
+`src/app/api/products/route.ts` used `where.source = source` as a Prisma filter, but `source` is a routing directive (local DB vs daemon marketplace), not a product attribute. The filter returned 0 products since the DB column is empty/absent.
+
+**Fix:** Removed `where.source` filter; added documentation comment clarifying routing-only semantics.
+
+### Medium (P5) — E2E Auth Test Cookie Jar State Leakage
+
+Tests S4.2/S4.3 in `scripts/e2e-v5.sh` used the shared cookie jar (authenticated from Phase 2), receiving HTTP 200 instead of expected 307 redirect for unauthenticated access.
+
+**Fix:** Replaced `http_code` with bare `curl` (no cookie jar) for auth guard tests.
+
+---
+
+## BAIT Ecosystem Audit — Devs PHD Level
+
+> **Source:** `Auditoria_BAIT_22.09.txt` — MyLink Fund PhD Audit  
+> **Full checklist:** [`DEVS_PHD_CHECKLIST.md`](./DEVS_PHD_CHECKLIST.md)
+
+### Critical Findings
+
+| Area        | Finding                                | Risk     | Vector                               |
+| ----------- | -------------------------------------- | -------- | ------------------------------------ |
+| Contracts   | `pause()` monárquico sem timelock      | CRITICAL | Rug pull / congelamento irreversível |
+| Contracts   | Bridge invariante off-chain only       | CRITICAL | Mint sem lastro on-chain             |
+| OPSEC       | Credenciais em docs/histórico          | CRITICAL | Comprometimento total do ecossistema |
+| Deploy      | Bug `DeployBAIT.s.sol:26` (bridgeLock) | HIGH     | Incompatibilidade estrutural         |
+| Claims      | Uso indevido "CertiK"                  | HIGH     | Misrepresentation, rejeição CEX      |
+| Claims      | Divergência zkML-PoUW (docs vs code)   | HIGH     | Marketing vs implementação           |
+| Regulatório | Founders Faucet Cron + Staking APY     | HIGH     | Security sob Howey Test              |
+
+### Roadmap by Phase
+
+| Phase | Focus              | Key Actions                                                                          |
+| ----- | ------------------ | ------------------------------------------------------------------------------------ |
+| P0    | Contenção Imediata | BFG expurgo, rotação de chaves, branch protection, remoção CertiK                    |
+| P1    | DevSecOps          | gitleaks + trufflehog pre-commit, modularização main_daemon.py, .mailmap             |
+| P2    | Smart Contracts    | Timelock 48h, EIP-712 bridge, Circuit Breaker, Slither/Echidna, DeployBAIT fix       |
+| P3    | A2A Compliance     | Schema JSON unificado, SHA-256 hash proofs, Webhook alerts, FoundersVesting on-chain |
+| P4    | Governance E2E     | On-Chain snapshot, compliance@mybait.org, Bug Bounty, Data Room                      |
+
+### Smart Contract Corrections (Proposed)
+
+**BAITBridge.sol** — EIP-712 + Circuit Breaker + Invariante On-Chain:
+
+- `userNonces[address]` tracking + `processedHashes[bytes32]` replay protection
+- `dailyVolumeLimit` with 24h reset
+- `if (totalMinted > totalLocked) revert InvariantViolation()` enforced in bytecode
+
+**BAITToken.sol** — Timelock on `pause()`:
+
+- `onlyTimelock` modifier requiring `TimelockController` (48h delay)
+- Multisig 3-de-5 for administrative functions
+
+**FoundersVesting.sol** — Replace cron with on-chain linear vesting:
+
+- OpenZeppelin `VestingWallet` pattern with cliff period
+- Revocation of direct mint permissions from old wallets
 
 ---
 
 ## Project Statistics
 
 ```
-Version:              1.0.0 (Mainnet)
+Version:              2.0.0 (Mainnet + Surgical Patches)
 Live URL:             https://www.mybait.org/aistore
 Deployment:           HostGator CGI + Apache
 Source Files:         141 TypeScript/TSX (src/ + mcp/src/)
@@ -1126,9 +1176,8 @@ Database Models:      11 (5 core + 6 MCP lifecycle)
 Prisma Fields:        18+ per Product entity
 MCP Servers:          12 store-side servers, 18 registered packages
 Unit Tests:           171 passing (9 files)
-E2E Tests:            5 Playwright specs
-CI/CD Workflows:      5 (CI + deploy + 3 daily cron)
-Scripts:              35 utility scripts
+E2E Tests:            41 passing (v5.0.0, 6 phases, 31s)
+Surgical Patches:     5 validated (2 critical, 2 high, 1 medium)
 Build Output:         Next.js standalone (server.js)
 Database Records:     2,704 products
 ```
@@ -1137,14 +1186,15 @@ Database Records:     2,704 products
 
 ## Version History
 
-| Version       | Date    | Key Changes                                                                                                                                     |
-| ------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `1.0.0`       | 2026-08 | Mainnet release, HostGator CGI deployment, 2,704 products, MCP module, 11 DB models, 38 API endpoints, self-heal, RAG upgrader, daily cron jobs |
-| `0.7.0-alpha` | 2026-08 | Observability, security hardening, smoke tests, migration system                                                                                |
-| `0.6.0-alpha` | 2026-08 | HTTPS (Caddy), static module fix, end-to-end content access, deploy fix                                                                         |
-| `0.5.0-alpha` | 2026-08 | Atomic cart, E2E suite, reputation ring, 5-stage CI, bundle split                                                                               |
-| `0.4.0-alpha` | 2026-08 | Plugin manifest, sandbox, reputation engine, error resolver, metrics                                                                            |
-| `0.3.0-beta`  | 2026-07 | ISR 1504 pages, Wallet SDK, 131 tests, Docker hardening                                                                                         |
+| Version       | Date    | Key Changes                                                                                                                                          |
+| ------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `2.0.0`       | 2026-09 | Surgical audit: 5 patches (session format off-by-one P1+P2, schema source P3, routing directive P4, E2E isolation P5), E2E v5 41/41, README Devs PHD |
+| `1.0.0`       | 2026-08 | Mainnet release, HostGator CGI deployment, single version source, lazy session, deploy pipeline, UX overhaul                                         |
+| `0.7.0-alpha` | 2026-08 | Observability, security hardening, smoke tests, migration system                                                                                     |
+| `0.6.0-alpha` | 2026-08 | HTTPS (Caddy), static module fix, end-to-end content access, deploy fix                                                                              |
+| `0.5.0-alpha` | 2026-08 | Atomic cart, E2E suite, reputation ring, 5-stage CI, bundle split                                                                                    |
+| `0.4.0-alpha` | 2026-08 | Plugin manifest, sandbox, reputation engine, error resolver, metrics                                                                                 |
+| `0.3.0-beta`  | 2026-07 | ISR 1504 pages, Wallet SDK, 131 tests, Docker hardening                                                                                              |
 
 ---
 

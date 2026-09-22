@@ -75,5 +75,5 @@ export function verifySession(token: string | undefined): string | null {
  */
 export function verifySessionFormat(token: string): boolean {
   const parts = token.split('.')
-  return parts.length === 2 && parts[0].length > 0 && parts[1].length === 44
+  return parts.length === 2 && parts[0].length > 0 && (parts[1].length === 43 || parts[1].length === 44)
 }
