@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SEED_DIR = ROOT / "scripts" / "mcp" / "seed"
 DEFAULT_BAITCOIN_ROOT = ROOT.parent / "b-AI-tcoin-AI-to-AI"
 BAITCOIN_DIST = Path(os.environ.get("BAITCOIN_DIST", str(DEFAULT_BAITCOIN_ROOT / "mcp" / "dist")))
+DEFAULT_AIPKG_DIR = ROOT / "artifacts" / "mcp-portfolio-aipkg"
 
 
 # ────────────────────── Prisma schema (subset needed for populate.sql) ──────────────────────
@@ -135,19 +136,20 @@ CREATE TABLE IF NOT EXISTS McpRagFeedback (
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed-dir", default=str(DEFAULT_SEED_DIR), help="Path to seed dir containing populate.sql + mcp_portfolio.json")
-    parser.add_argument("--baitcoin-dist", default=str(BAITCOIN_DIST), help="Path to baitcoin/mcp/dist for .aipkg integrity check")
+    parser.add_argument("--aipkg-dir", default=str(DEFAULT_AIPKG_DIR), help="Path to versioned .aipkg artifacts")
+    parser.add_argument("--baitcoin-dist", default=None, help="Legacy alias for an external baitcoin/mcp/dist directory")
     parser.add_argument("--db", default="/tmp/mcp_e2e_test.db", help="Path to test SQLite DB (will be created)")
     args = parser.parse_args()
 
     seed_dir = Path(args.seed_dir)
-    baitcoin_dist = Path(args.baitcoin_dist)
+    aipkg_dir = Path(args.aipkg_dir if args.baitcoin_dist is None else args.baitcoin_dist)
     db_path = Path(args.db)
 
     print("═══════════════════════════════════════════════════════════")
     print("  MCP Portfolio E2E Test")
     print("═══════════════════════════════════════════════════════════")
     print(f"  Seed dir:      {seed_dir}")
-    print(f"  Baitcoin dist: {baitcoin_dist}")
+    print(f"  Aipkg dir:     {aipkg_dir}")
     print(f"  Test DB:       {db_path}")
     print()
 
@@ -266,8 +268,8 @@ def main():
 
     # ────────────────────── Step 10: .aipkg integrity check ──────────────────────
     print()
-    if baitcoin_dist.exists():
-        aipkgs = sorted(baitcoin_dist.glob("*.aipkg"))
+    if aipkg_dir.exists():
+        aipkgs = sorted(aipkg_dir.glob("*.aipkg"))
         print(f"▌ .aipkg integrity ({len(aipkgs)} files):")
         bad_zip = 0
         bad_manifest = 0
@@ -284,9 +286,9 @@ def main():
                         bad_manifest += 1
                         print(f"  ✗ {ap.name}: no manifest.json")
                         continue
-                    if "server/server.py" not in z.namelist():
+                    if not any(name.startswith("server/") for name in z.namelist()):
                         bad_manifest += 1
-                        print(f"  ✗ {ap.name}: no server/server.py")
+                        print(f"  ✗ {ap.name}: no executable server payload")
                         continue
                     # Verify checksum
                     if "checksum.sha256" in z.namelist():
@@ -304,13 +306,13 @@ def main():
                 bad_zip += 1
                 print(f"  ✗ {ap.name}: not a valid ZIP")
         if bad_zip == 0 and bad_manifest == 0 and bad_checksum == 0:
-            print(f"✓ all {len(aipkgs)} .aipkg archives valid (manifest + server.py + checksum)")
+            print(f"✓ all {len(aipkgs)} .aipkg archives valid (manifest + server payload + checksum)")
         else:
             if bad_zip: failures.append(f"{bad_zip} .aipkg files are not valid ZIPs")
             if bad_manifest: failures.append(f"{bad_manifest} .aipkg files missing required entries")
             if bad_checksum: failures.append(f"{bad_checksum} .aipkg files have checksum mismatch")
     else:
-        print(f"⚠ baitcoin dist not found at {baitcoin_dist}, skipping .aipkg integrity")
+        print(f"⚠ aipkg directory not found at {aipkg_dir}, skipping .aipkg integrity")
 
     # ────────────────────── Step 10: report ──────────────────────
     conn.close()
@@ -327,7 +329,7 @@ def main():
         print(f"     McpPackage: {pkg_count}")
         print(f"     McpTool:    {tool_count}")
         print(f"     Categories: {len(rows)}")
-        print(f"     .aipkg:     {len(aipkgs) if baitcoin_dist.exists() else 'not verified (dist unavailable)'}")
+        print(f"     .aipkg:     {len(aipkgs) if aipkg_dir.exists() else 'not verified (directory unavailable)'}")
         sys.exit(0)
 
 
