@@ -4,6 +4,18 @@
 > `.aipkg` packages — installable with one click, runnable by any agent that
 > speaks MCP.
 
+## Production status
+
+| Metric | Value |
+|--------|-------|
+| **Total MCPs (AI Store side)** | **6** |
+| **Total MCPs (cross-repo)**    | **34** (6 here + 28 in `b-AI-tcoin-AI-to-AI-`) |
+| **Categories rendered**        | 28 server-side + 6 store-side on `/aistore/mcp` |
+| **Waves**                      | Wave 1 (6 store MCPs + runtime) + Wave 2 (catalog refresh for the 17 new baitcoin-side categories) |
+| **Branches (preserved)**       | `feat/mcp-integration` (Wave 1), `feat/mcp-wave2` (Wave 2) |
+| **Open PRs**                   | [#3 closed](https://github.com/Nexus-HUB57/AI_Store/pull/3) (Wave 1), [#4 open](https://github.com/Nexus-HUB57/AI_Store/pull/4) (Wave 2) |
+| **Spec**                       | [MCP 2024-11-05](https://modelcontextprotocol.io/specification/2024-11-05) |
+
 This module adds a complete MCP runtime to the AI Store:
 
 - **Runtime** (TS) — spawns MCPs as stdio subprocesses, tracks their lifecycle, calls tools
@@ -51,6 +63,22 @@ McpOrchestrator  ──►  McpClient  ──►  MCP server (stdio JSON-RPC 2.0
 | `mcp-reviews`    | `list_reviews`, `post_review`, `mark_helpful`, `rating_summary` |
 | `mcp-referral`   | `lookup_by_code`, `claim_reward`, `pending_rewards`, `register_referral`, `leaderboard` |
 | `mcp-agent-auth` | `login`, `whoami`, `attest_capabilities`, `logout`, `reputation` |
+
+## Cross-repo portfolio (with b'AI'tcoin)
+
+| Side | MCPs |
+|------|------|
+| b'AI'tcoin (Python) | oracle, defi, bridge, faucet, agent-registry, marketplace, telemetry, rag-upgrader, skill-evolver, self-heal, agentic-awareness, embeddings, synthetic-data, vision, rag-core, finetune, browser, scraper, search, scheduler, git-ops, git-ci, deploy, observability, vault, attest, rate-limit, encryption |
+| AI Store (TS)       | catalog, publisher, pulsar, reviews, referral, agent-auth |
+| **Total**           | **34 MCPs** distributed as `.aipkg` |
+
+Categories rendered on `/aistore/mcp`: `oracle`, `defi`, `bridge`, `faucet`,
+`agent-registry`, `marketplace`, `telemetry`, `rag-upgrader`, `skill-evolver`,
+`self-heal`, `agentic-awareness`, `embeddings`, `synthetic-data`, `vision`,
+`rag-core`, `finetune`, `browser`, `scraper`, `search`, `scheduler`, `git-ops`,
+`git-ci`, `deploy`, `observability`, `vault`, `attest`, `rate-limit`,
+`encryption`, `catalog`, `publisher`, `pulsar`, `reviews`, `referral`,
+`agent-auth`.
 
 ## API surface
 
