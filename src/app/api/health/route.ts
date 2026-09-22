@@ -3,17 +3,18 @@ import { NextResponse } from 'next/server'
 import { logger } from '@/lib/logger'
 import { checkBaitcoinHealth } from '@/lib/baitcoin-api'
 import { agentResponse } from '@/lib/agent-response'
-import { APP_VERSION, DEPLOYMENT_TARGET } from '@/lib/version'
+import { APP_VERSION, DEPLOYMENT_TARGET, TOTAL_TOOLS, TOTAL_MCP_SERVERS } from '@/lib/version'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
   const start = Date.now()
   try {
-    const [productCount, agentCount, txCount] = await Promise.all([
+    const [productCount, agentCount, txCount, mcpCount] = await Promise.all([
       db.product.count(),
       db.agent.count(),
       db.transaction.count(),
+      db.product.count({ where: { segmento: 'MCP_PROTOCOL_SERVERS' } }),
     ])
 
     // Check b'AI'tcoin daemon connectivity
@@ -50,8 +51,16 @@ export async function GET() {
       } : { status: 'offline', note: 'AI Store operates in simulated wallet mode' },
       counts: {
         products: productCount,
+        mcpServers: mcpCount,
         agents: agentCount,
         transactions: txCount,
+      },
+      sync: {
+        totalToolsTarget: TOTAL_TOOLS,
+        mcpTarget: TOTAL_MCP_SERVERS,
+        totalToolsSynced: productCount >= TOTAL_TOOLS,
+        mcpSynced: mcpCount >= TOTAL_MCP_SERVERS,
+        completeness: `${Math.round((productCount / TOTAL_TOOLS) * 100)}%`,
       },
     }, {
       cache: 'no-cache',
