@@ -31,10 +31,12 @@ const rootIdx = args.indexOf("--baitcoin-root");
 const baitcoinRoot = rootIdx >= 0 ? args[rootIdx + 1] : "../b-AI-tcoin-AI-to-AI-";
 
 const isBaitcoin = !["mcp-catalog", "mcp-publisher", "mcp-pulsar", "mcp-reviews", "mcp-referral", "mcp-agent-auth"].includes(mcpName);
+const storeServerDirs = { "mcp-agent-auth": "agent_auth" };
+const storeServerDir = storeServerDirs[mcpName] ?? mcpName.replace(/^mcp-/, "");
 
 const manifestPath = isBaitcoin
   ? path.join(baitcoinRoot, "mcp", "servers", mcpName, "manifest.json")
-  : path.join("mcp/src/servers", mcpName, "manifest.json");
+  : path.join("mcp/src/servers", storeServerDir, "manifest.json");
 
 let manifest;
 try {
@@ -51,7 +53,7 @@ const outFile = path.join(outDir, `${mcpName}-${manifest.version}.aipkg`);
 function zip(files, outPath) {
   return new Promise((resolve, reject) => {
     const out = createWriteStream(outPath);
-    const central: Buffer[] = [];
+    const central = [];
     let offset = 0;
 
     function crc32(buf) {
@@ -88,8 +90,26 @@ function zip(files, outPath) {
         local.writeUInt16LE(nameBuf.length, 26);
         local.writeUInt16LE(0, 28);          // extra
 
-        await new Promise<void>((res) => out.write(Buffer.concat([local, nameBuf, data]), () => res()));
-        central.push(Buffer.concat([local, nameBuf]));
+        await new Promise((res) => out.write(Buffer.concat([local, nameBuf, data]), () => res()));
+        const centralEntry = Buffer.alloc(46);
+        centralEntry.writeUInt32LE(0x02014b50, 0);
+        centralEntry.writeUInt16LE(20, 4);          // version made by
+        centralEntry.writeUInt16LE(20, 6);          // version needed
+        centralEntry.writeUInt16LE(0, 8);           // flags
+        centralEntry.writeUInt16LE(0, 10);          // method (store)
+        centralEntry.writeUInt16LE(0, 12);          // time
+        centralEntry.writeUInt16LE(0, 14);          // date
+        centralEntry.writeUInt32LE(crc, 16);
+        centralEntry.writeUInt32LE(data.length, 20);
+        centralEntry.writeUInt32LE(data.length, 24);
+        centralEntry.writeUInt16LE(nameBuf.length, 28);
+        centralEntry.writeUInt16LE(0, 30);          // extra length
+        centralEntry.writeUInt16LE(0, 32);          // comment length
+        centralEntry.writeUInt16LE(0, 34);          // disk number
+        centralEntry.writeUInt16LE(0, 36);          // internal attributes
+        centralEntry.writeUInt32LE(0, 38);          // external attributes
+        centralEntry.writeUInt32LE(offset, 42);    // local header offset
+        central.push(Buffer.concat([centralEntry, nameBuf]));
         offset += 30 + nameBuf.length + data.length;
       }
 
@@ -113,13 +133,13 @@ function zip(files, outPath) {
 
 const serverDir = isBaitcoin
   ? path.join(baitcoinRoot, "mcp", "servers", mcpName)
-  : path.join("mcp/src/servers", mcpName);
+  : path.join("mcp/src/servers", storeServerDir);
 
-const entries: { name: string; data: Buffer }[] = [];
+const entries = [];
 entries.push({ name: "manifest.json", data: Buffer.from(JSON.stringify(manifest, null, 2), "utf-8") });
 
 // Walk the server dir and include server.py + manifest.json + README.md
-async function walk(dir: string, prefix: string) {
+async function walk(dir, prefix) {
   for (const ent of await readdir(dir, { withFileTypes: true })) {
     const full = path.join(dir, ent.name);
     if (ent.isDirectory()) {

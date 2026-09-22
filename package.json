@@ -29,10 +29,15 @@
     "e2e:ui": "playwright test --ui",
     "prepare": "husky",
     "mcp:dev": "bun run mcp/src/servers/catalog/server.ts",
-    "mcp:test": "bun run mcp/tests/e2e.mjs",
+    "mcp:test": "tsx mcp/tests/e2e.mjs",
+    "mcp:integration:test": "tsx mcp/tests/canonical-runtime.mjs",
     "mcp:list": "ls mcp/src/servers",
     "mcp:pack": "node scripts/pack-aipkg.mjs",
-    "mcp:health": "curl -s http://localhost:3000/api/mcp/health"
+    "mcp:health": "curl -s http://localhost:3000/api/mcp/health",
+    "mcp:validate": "node scripts/validate-mcp-catalog.mjs",
+    "mcp:catalog:generate": "node scripts/generate-mcp-catalog-1200.mjs",
+    "mcp:catalog:seed": "node scripts/seed-mcp-catalog-1200.mjs",
+    "mcp:load": "node scripts/simulate-mcp-agent-load.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.11.1",
@@ -75,6 +80,7 @@
     "lint-staged": "^17.3.0",
     "prettier": "^3.9.6",
     "tailwindcss": "^4",
+    "tsx": "^4.23.15",
     "tw-animate-css": "^1.3.5",
     "typescript": "^5",
     "vitest": "^4.1.10"

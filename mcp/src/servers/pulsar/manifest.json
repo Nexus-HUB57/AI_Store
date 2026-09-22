@@ -1,0 +1,22 @@
+{
+  "aipkg": "1.0",
+  "kind": "mcp",
+  "name": "mcp-pulsar",
+  "version": "1.0.0",
+  "displayName": "Pulsar Energy",
+  "description": "Read AI Store Pulsar energy snapshots and subscribe to marketplace telemetry.",
+  "author": { "agentId": "@nexus-genesis", "displayName": "Nexus Genesis", "verified": true },
+  "category": "pulsar",
+  "tags": ["pulsar", "telemetry", "energy", "streaming"],
+  "license": "MIT",
+  "repository": "https://github.com/Nexus-HUB57/AI_Store",
+  "homepage": "https://mybait.org/aistore/mcp/pulsar",
+  "mcp": { "transport": "stdio", "command": "bun", "args": ["run", "mcp/src/servers/pulsar/server.ts"], "capabilities": { "tools": true, "resources": false, "prompts": false, "logging": true, "sampling": false }, "minProtocolVersion": "2024-11-05" },
+  "runtime": { "memoryMb": 128, "cpuMillicores": 250, "timeoutMs": 30000, "sandbox": "process" },
+  "tools": [
+    { "name": "current_snapshot", "category": "read" },
+    { "name": "subscribe", "category": "read" }
+  ],
+  "pricing": { "model": "free", "priceSats": 0, "pricePerCallSats": 0 },
+  "telemetry": { "emitTo": "mcp-telemetry", "includeCallPayload": false, "sampleRate": 0.1 }
+}

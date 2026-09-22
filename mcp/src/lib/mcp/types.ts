@@ -160,6 +160,66 @@ export interface AipkgMcpManifest {
   telemetry?: { emitTo?: string; includeCallPayload?: boolean; sampleRate?: number };
 }
 
+// Compatibility types for the original in-process TypeScript SDK.
+export interface McpToolDef {
+  name: string;
+  description?: string;
+  inputSchema: Tool["inputSchema"];
+  outputSchema?: Record<string, unknown>;
+}
+export interface McpManifest {
+  name: string;
+  version: string;
+  description: string;
+  author: string;
+  category: string;
+  tags: string[];
+  entrypoint: string;
+  runtime: string;
+  permissions: { network: boolean; filesystem: string[]; env: string[] };
+  envVars: Record<string, string>;
+  tools: McpToolDef[];
+}
+export interface McpCallRequest {
+  toolName: string;
+  input: Record<string, unknown>;
+  callerAgent: string;
+}
+export interface McpCallResult {
+  success: boolean;
+  output: Record<string, unknown>;
+  latencyMs: number;
+  error?: string;
+}
+export interface AipkgConfig {
+  name: string;
+  version: string;
+  description: string;
+  author: string;
+  category: string;
+  entrypoint: string;
+  runtime: string;
+  include?: string[];
+  exclude?: string[];
+  outDir?: string;
+  permissions?: Record<string, unknown>;
+}
+export interface McpServerStatus {
+  name: string;
+  status: "running" | "ready" | "stopped" | "error";
+  lastPing?: string;
+  errorCount?: number;
+  error?: string;
+}
+export interface McpHealthStatus {
+  status: "healthy" | "degraded" | "unhealthy";
+  uptime: number;
+  packagesLoaded: number;
+  activeCalls: number;
+  servers: McpServerStatus[];
+  timestamp: string;
+}
+
 export const PROTOCOL_VERSION = "2024-11-05";
 
 // ---------------------------------------------------------------------------

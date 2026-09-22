@@ -1,0 +1,56 @@
+{
+  "mode": "dry-run",
+  "safety": {
+    "network": false,
+    "database": false,
+    "broadcast": false,
+    "realFunds": false
+  },
+  "catalogEntries": 1200,
+  "executableArchives": 6,
+  "agents": 1200,
+  "operationsPerAgent": 12,
+  "totalOperations": 14400,
+  "catalogHits": 14400,
+  "toolRoutes": 14268,
+  "durationMs": 1,
+  "archives": [
+    {
+      "name": "mcp-catalog",
+      "version": "1.0.0",
+      "entries": 3,
+      "tools": 5
+    },
+    {
+      "name": "mcp-publisher",
+      "version": "1.0.0",
+      "entries": 3,
+      "tools": 4
+    },
+    {
+      "name": "mcp-pulsar",
+      "version": "1.0.0",
+      "entries": 3,
+      "tools": 2
+    },
+    {
+      "name": "mcp-reviews",
+      "version": "1.0.0",
+      "entries": 3,
+      "tools": 4
+    },
+    {
+      "name": "mcp-referral",
+      "version": "1.0.0",
+      "entries": 3,
+      "tools": 5
+    },
+    {
+      "name": "mcp-agent-auth",
+      "version": "1.0.0",
+      "entries": 3,
+      "tools": 5
+    }
+  ],
+  "generatedAt": "2026-09-17T15:40:18.163Z"
+}

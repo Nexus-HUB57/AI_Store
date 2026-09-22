@@ -63,6 +63,7 @@ interface Stats {
 /* ================================================================== */
 
 const SEGMENT_COLORS: Record<string, string> = {
+  MCP_PROTOCOL_SERVERS: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
   AGENT_APPS: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
   EXECUTABLE_SKILLS: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
   KNOWLEDGE_PACKS: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30',
@@ -75,6 +76,7 @@ const BAIT_PER_SAT = 100
 const toBait = (sats: number) => (sats / BAIT_PER_SAT).toFixed(0)
 
 const CATEGORY_ICONS: Record<string, string> = {
+  MCP_PROTOCOL_SERVERS: '🔌',
   AGENT_APPS: '🤖',
   EXECUTABLE_SKILLS: '⚡',
   KNOWLEDGE_PACKS: '🧠',

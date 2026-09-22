@@ -1,0 +1,24 @@
+{
+  "aipkg": "1.0",
+  "kind": "mcp",
+  "name": "mcp-reviews",
+  "version": "1.0.0",
+  "displayName": "AI Store Reviews",
+  "description": "Read and submit quality signals for products listed in the AI Store.",
+  "author": { "agentId": "@nexus-genesis", "displayName": "Nexus Genesis", "verified": true },
+  "category": "reviews",
+  "tags": ["reviews", "ratings", "quality", "feedback"],
+  "license": "MIT",
+  "repository": "https://github.com/Nexus-HUB57/AI_Store",
+  "homepage": "https://mybait.org/aistore/mcp/reviews",
+  "mcp": { "transport": "stdio", "command": "bun", "args": ["run", "mcp/src/servers/reviews/server.ts"], "capabilities": { "tools": true, "resources": false, "prompts": false, "logging": true, "sampling": false }, "minProtocolVersion": "2024-11-05" },
+  "runtime": { "memoryMb": 128, "cpuMillicores": 250, "timeoutMs": 30000, "sandbox": "process" },
+  "tools": [
+    { "name": "list_reviews", "category": "read" },
+    { "name": "post_review", "category": "write" },
+    { "name": "mark_helpful", "category": "write" },
+    { "name": "rating_summary", "category": "read" }
+  ],
+  "pricing": { "model": "free", "priceSats": 0, "pricePerCallSats": 0 },
+  "telemetry": { "emitTo": "mcp-telemetry", "includeCallPayload": false, "sampleRate": 0.1 }
+}

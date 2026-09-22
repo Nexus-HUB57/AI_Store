@@ -54,6 +54,7 @@ model Agent {
   sellerTxs        Transaction[]  @relation("SellerTx")
   referralRewards  ReferralReward[] @relation("Referrer")
   referralReceived ReferralReward[] @relation("Referred")
+  purchaseIntents  PurchaseIntent[]
 }
 
 model Review {
@@ -96,6 +97,54 @@ model Transaction {
   @@index([buyerId])
   @@index([sellerId])
   @@index([productId])
+}
+
+// Financial intent created before any external broadcast.
+// The composite unique key makes retries safe per authenticated buyer.
+model PurchaseIntent {
+  id                 String   @id @default(cuid())
+  buyerId            String
+  idempotencyKey     String
+  requestHash        String
+  status             String   @default("pending")
+  currencyUnit       String   @default("sats")
+  originalAmountSats Int
+  discountAmountSats Int      @default(0)
+  chargedAmountSats  Int
+  externalTxId       String?
+  failureCode        String?
+  payloadJson        String   @default("{}")
+  attempts           Int      @default(0)
+  nextAttemptAt      DateTime @default(now())
+  lastError          String   @default("")
+  receiptJson        String   @default("")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  buyer Agent @relation(fields: [buyerId], references: [id], onDelete: Restrict)
+  outbox PurchaseOutbox?
+
+  @@unique([buyerId, idempotencyKey])
+  @@unique([externalTxId])
+  @@index([status, updatedAt])
+  @@index([buyerId, createdAt])
+}
+
+model PurchaseOutbox {
+  id          String   @id @default(cuid())
+  intentId    String   @unique
+  kind        String   @default("purchase_broadcast")
+  status      String   @default("pending")
+  attempts    Int      @default(0)
+  availableAt DateTime @default(now())
+  lockedAt    DateTime?
+  lastError   String   @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  intent PurchaseIntent @relation(fields: [intentId], references: [id], onDelete: Cascade)
+
+  @@index([status, availableAt])
 }
 
 model ReferralReward {
