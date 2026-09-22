@@ -71,5 +71,7 @@ deploy/standalone/
 deploy/aistore-codebase.tar.gz
 deploy/standalone/
 deploy/aistore-codebase.tar.gz
-deploy/standalone/
-deploy/aistore-codebase.tar.gz
+
+# MCP E2E test scratch files
+mcp/tests/_*.db
+mcp/tests/_*.db-journal
