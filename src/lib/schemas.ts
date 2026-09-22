@@ -39,6 +39,7 @@ export const productsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(24),
   featured: z.enum(['true', 'false']).optional(),
+  source: z.enum(['local', 'daemon']).optional(),
 })
 
 // ─── Upload .aipkg ───

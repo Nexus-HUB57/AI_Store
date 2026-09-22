@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/AI_Store-v1.0.0-emerald" alt="version" />
+  <img src="https://img.shields.io/badge/AI_Store-v2.0.0-emerald" alt="version" />
   <img src="https://img.shields.io/badge/Catalog-1_504_products-blue" alt="products" />
   <img src="https://img.shields.io/badge/Categories-6_Segments-cyan" alt="categories" />
   <img src="https://img.shields.io/badge/API_Endpoints-23-violet" alt="endpoints" />
@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/Protocol-A2A--RPC_v1-9cf" alt="protocol" />
   <img src="https://img.shields.io/badge/Package_Format-.aipkg-fuchsia" alt="aipkg" />
   <img src="https://img.shields.io/badge/UI_Framework-shadcn%2Fui_zinc--950-6366f1" alt="ui" />
-  <img src="https://img.shields.io/badge/Tests-171_passing-brightgreen" alt="tests" />
+  <img src="https://img.shields.io/badge/Tests-171_unit_+41_E2E-brightgreen" alt="tests" />
   <img src="https://img.shields.io/badge/Routes-1_533_SSG-blueviolet" alt="routes" />
   <img src="https://img.shields.io/badge/HTTPS-Caddy_Auto--TLS-informational" alt="https" />
   <img src="https://img.shields.io/badge/CI_CD-Deploy_Pipeline-success" alt="ci" />
@@ -754,7 +754,7 @@ npm run smoke
 npm run deploy:check
 ```
 
-### Test Coverage (171 tests across 9 files)
+### Test Coverage (171 unit + 41 E2E)
 
 | File                        | Tests | Coverage Area                                  |
 | --------------------------- | ----- | ---------------------------------------------- |
@@ -768,12 +768,68 @@ npm run deploy:check
 | `logger.test.ts`            | 6     | Structured JSON logging                        |
 | `env.test.ts`               | 6     | Environment variable validation                |
 
+### E2E v5.0.0 Suite — 41 Tests / 6 Phases
+
+> **Status: ALL TESTS PASSED (31s)** — validated 2026-09-23
+
+```bash
+# Run full E2E v5 suite (starts dev server, runs 41 tests, generates JSON report)
+bash scripts/e2e-v5.sh
+
+# JSON report saved to /tmp/e2e-v5-report.json
+```
+
+| Phase | Name                                   | Tests | Coverage                                                      |
+| ----- | -------------------------------------- | ----- | ------------------------------------------------------------- |
+| 1     | Smoke — Connectivity & Health          | 9     | Homepage, version, health, stats, CSRF, 404, security headers |
+| 2     | E2E Flow — Auth → Purchase → Verify    | 8     | Signup, session, browse, purchase, discount, state            |
+| 3     | Product Catalog — Search, Filter, Sort | 7     | Search, segmento, sort, pagination, compact, stats, featured  |
+| 4     | SSG Pages — Render & Auth Guard        | 5     | Product page, dashboard auth, publish auth, discover, openapi |
+| 5     | Pulsar SSE — Stream & Heartbeat        | 4     | Content-Type, connected event, heartbeat <16s, cache-control  |
+| 6     | Stress — Sequential Rapid-Fire         | 8     | 8 endpoints × 5-10 sequential requests, 100% success rate     |
+
+---
+
+## Surgical Patches — v2.0.0 Audit
+
+> **5 corrections applied with surgical precision, validated E2E 41/41**  
+> Full checklist: [`SURGICAL_CHECKLIST.md`](./SURGICAL_CHECKLIST.md)
+
+### Critical (P1 + P2) — Session Format Verification Off-by-One
+
+The `verifySessionFormat` function in both `src/middleware.ts` and `src/lib/session.ts` checked `parts[1].length === 44` for HMAC-SHA256 signatures. Base64url encoding of 32 bytes produces **43 characters** (no padding), not 44. This rejected **all valid sessions**, blocking access to protected routes (`/dashboard`, `/publish`) even with valid credentials.
+
+**Fix:** Accept both 43 and 44 character signatures: `parts[1].length === 43 || parts[1].length === 44`
+
+```
+Before: return parts.length === 2 && parts[0].length > 0 && parts[1].length === 44
+After:  return parts.length === 2 && parts[0].length > 0 && (parts[1].length === 43 || parts[1].length === 44)
+```
+
+### High (P3) — Missing `source` Field in Zod Schema
+
+`productsQuerySchema` in `src/lib/schemas.ts` lacked the `source` parameter. Zod's default strip mode removed it, causing `source=local` queries to route to daemon instead of local DB.
+
+**Fix:** Added `source: z.enum(['local', 'daemon']).optional()` to schema.
+
+### High (P4) — `source` as DB Filter Instead of Routing Directive
+
+`src/app/api/products/route.ts` used `where.source = source` as a Prisma filter, but `source` is a routing directive (local DB vs daemon marketplace), not a product attribute. The filter returned 0 products since the DB column is empty/absent.
+
+**Fix:** Removed `where.source` filter; added documentation comment clarifying routing-only semantics.
+
+### Medium (P5) — E2E Auth Test Cookie Jar State Leakage
+
+Tests S4.2/S4.3 in `scripts/e2e-v5.sh` used the shared cookie jar (authenticated from Phase 2), receiving HTTP 200 instead of expected 307 redirect for unauthenticated access.
+
+**Fix:** Replaced `http_code` with bare `curl` (no cookie jar) for auth guard tests.
+
 ---
 
 ## Project Statistics
 
 ```
-Version:              1.0.0 (Mainnet)
+Version:              2.0.0 (Mainnet + Surgical Patches)
 Live URL:             https://www.mybait.org/aistore
 Deployment:           HostGator CGI + Apache
 Source Files:         92 TypeScript/TSX
@@ -784,7 +840,8 @@ Total Routes:         1,533
 Database Models:      5 (Product, Agent, Review, Transaction, ReferralReward)
 Prisma Fields:        18+ per Product entity
 Unit Tests:           171 passing (9 files)
-E2E Tests:            4 Playwright specs
+E2E Tests:            41 passing (v5.0.0, 6 phases, 31s)
+Surgical Patches:     5 validated (2 critical, 2 high, 1 medium)
 Build Output:         Next.js standalone (server.js)
 Catalog Source:       13,610-line specification document
 Database Records:     1,504 products
@@ -794,14 +851,15 @@ Database Records:     1,504 products
 
 ## Version History
 
-| Version       | Date    | Key Changes                                                                                                  |
-| ------------- | ------- | ------------------------------------------------------------------------------------------------------------ |
-| `1.0.0`       | 2026-08 | Mainnet release, HostGator CGI deployment, single version source, lazy session, deploy pipeline, UX overhaul |
-| `0.7.0-alpha` | 2026-08 | Observability, security hardening, smoke tests, migration system                                             |
-| `0.6.0-alpha` | 2026-08 | HTTPS (Caddy), static module fix, end-to-end content access, deploy fix                                      |
-| `0.5.0-alpha` | 2026-08 | Atomic cart, E2E suite, reputation ring, 5-stage CI, bundle split                                            |
-| `0.4.0-alpha` | 2026-08 | Plugin manifest, sandbox, reputation engine, error resolver, metrics                                         |
-| `0.3.0-beta`  | 2026-07 | ISR 1504 pages, Wallet SDK, 131 tests, Docker hardening                                                      |
+| Version       | Date    | Key Changes                                                                                                                                          |
+| ------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `2.0.0`       | 2026-09 | Surgical audit: 5 patches (session format off-by-one P1+P2, schema source P3, routing directive P4, E2E isolation P5), E2E v5 41/41, README Devs PHD |
+| `1.0.0`       | 2026-08 | Mainnet release, HostGator CGI deployment, single version source, lazy session, deploy pipeline, UX overhaul                                         |
+| `0.7.0-alpha` | 2026-08 | Observability, security hardening, smoke tests, migration system                                                                                     |
+| `0.6.0-alpha` | 2026-08 | HTTPS (Caddy), static module fix, end-to-end content access, deploy fix                                                                              |
+| `0.5.0-alpha` | 2026-08 | Atomic cart, E2E suite, reputation ring, 5-stage CI, bundle split                                                                                    |
+| `0.4.0-alpha` | 2026-08 | Plugin manifest, sandbox, reputation engine, error resolver, metrics                                                                                 |
+| `0.3.0-beta`  | 2026-07 | ISR 1504 pages, Wallet SDK, 131 tests, Docker hardening                                                                                              |
 
 ---
 

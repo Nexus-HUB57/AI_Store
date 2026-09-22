@@ -44,6 +44,7 @@ export async function GET(req: NextRequest) {
     // ─── Source routing: 'daemon' forces daemon, 'local' forces local DB ───
     // Default: try daemon first, fall back to local DB
     const useDaemon = source === 'daemon' || (!source && !featured)
+    // 'source' is a routing directive, not a DB column filter — exclude it from `where`
 
     if (useDaemon) {
       try {
@@ -102,9 +103,9 @@ export async function GET(req: NextRequest) {
       where.featured = true
     }
 
-    if (source) {
-      where.source = source
-    }
+    // NOTE: do NOT filter by `source` column — `source` param is a routing
+    // directive ('local' = use local DB, 'daemon' = use daemon marketplace),
+    // not a product attribute filter.
 
     const orderBy: Record<string, string> = {}
     if (sort === 'pulsarEnergy' || sort === 'pulsar') orderBy.pulsarEnergy = 'desc'
