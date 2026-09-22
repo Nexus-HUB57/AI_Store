@@ -36,13 +36,17 @@
     "mcp:list": "ls mcp/src/servers",
     "mcp:pack": "node scripts/pack-aipkg.mjs",
     "mcp:health": "curl -s http://localhost:3000/api/mcp/health",
+<<<<<<< HEAD
     "mcp:validate": "node scripts/validate-mcp-catalog.mjs",
     "mcp:catalog:generate": "node scripts/generate-mcp-catalog-1200.mjs",
     "mcp:catalog:seed": "node scripts/seed-mcp-catalog-1200.mjs",
     "mcp:load": "node scripts/simulate-mcp-agent-load.mjs"
+=======
+    "mcp:seed": "tsx prisma/seed-mcp.ts"
+>>>>>>> 0361d43 (feat(mcp): seed 17 MCPs into AI Store catalog + Next.js wiring)
   },
   "dependencies": {
-    "@prisma/client": "^6.11.1",
+    "@prisma/client": "^6.19.3",
     "@radix-ui/react-dialog": "^1.1.14",
     "@radix-ui/react-label": "^2.1.7",
     "@radix-ui/react-progress": "^1.1.7",

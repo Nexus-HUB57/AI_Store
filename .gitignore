@@ -72,6 +72,13 @@ deploy/aistore-codebase.tar.gz
 deploy/standalone/
 deploy/aistore-codebase.tar.gz
 
+<<<<<<< HEAD
 # MCP E2E test scratch files
 mcp/tests/_*.db
 mcp/tests/_*.db-journal
+=======
+# MCP runtime artifacts (regenerated on every dev start)
+/data/
+/logs/
+
+>>>>>>> 0361d43 (feat(mcp): seed 17 MCPs into AI Store catalog + Next.js wiring)

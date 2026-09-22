@@ -160,6 +160,69 @@ Together with the b'AI'tcoin repo's `mcp/` folder, the total portfolio is:
 | AI Store (TS)       | catalog, publisher, pulsar, reviews, referral, agent-auth |
 | **Total**           | **17 MCPs** distributed as `.aipkg` |
 
+## Agent acquisition flow
+
+This module is the **acquisition surface** for the 7th catalog segment. An Agent
+visits the store, picks an MCP, and **acquires** it — that installs the
+`McpPackage` into the Agent's toolbox and spawns the MCP server behind the
+orchestrator. Three REST endpoints drive the flow:
+
+```
+POST   /api/mcp/[name]/install   # agent acquires an MCP
+DELETE /api/mcp/[name]/install   # agent releases an MCP
+GET    /api/mcp/[name]           # inspect detail + runtime status
+GET    /api/mcp/health           # orchestrator snapshot
+```
+
+### Catalog → detail → acquire
+
+1. **Browse** — `/aistore/mcp` renders the catalog grouped by category (oracle,
+   defi, bridge, …). Each card links to `/aistore/mcp/[name]`.
+2. **Detail** — `/aistore/mcp/[name]` shows the manifest, declared tools,
+   capabilities, runtime status, and the **AcquireButton**.
+3. **Acquire** — clicking Acquire POSTs `/api/mcp/[name]/install`. The server:
+   - Upserts an `McpInstall` row keyed by `(packageId, agentId)`
+   - Spawns the MCP subprocess via `McpOrchestrator.install(manifest)`
+   - Bumps the `McpPackage.downloads` counter
+   - Returns `{ ok, installId, spawned, spawnError }`
+4. **Release** — DELETE `/api/mcp/[name]/install` removes the install row and
+   stops the subprocess once no other agent has the MCP installed.
+
+### Seed the catalog
+
+The catalog starts empty after a fresh `prisma migrate`. Populate it from both
+repos with:
+
+```bash
+npm run mcp:seed
+# tsx prisma/seed-mcp.ts
+```
+
+This reads:
+
+- `b-AI-tcoin/mcp/servers/<name>/manifest.json` for the 11 Python MCPs
+- `mcp/src/servers/<name>/server.ts` (presence check + inline metadata) for
+  the 6 TS MCPs
+
+…and writes 17 `McpPackage` rows with full manifests, tool catalogs, and
+pricings. Idempotent — skips if McpPackage is non-empty.
+
+### Runtime hydration
+
+On Next.js boot, `src/instrumentation.ts` calls
+`hydrateFromPrisma(prisma)`, which spawns every enabled MCP subprocess through
+the orchestrator. After hydration, the first agent install on a given MCP is
+fast (the process is already alive).
+
+### Sandbox / production note
+
+The Python MCPs spawn via `python -m servers.<name>.server` and need the
+b'AI'tcoin repo on the import path. The TS MCPs spawn via
+`bun run mcp/src/servers/<name>/server.ts` — `bun` must be on `PATH` in
+production. The bundler-agnostic `tsx`/`node` fallback is not bundled into the
+current `.aipkg` manifests; if you can't install `bun`, edit the `command`
+field in each `mcp/src/servers/<name>/...` and re-pack.
+
 ---
 
 ## License
