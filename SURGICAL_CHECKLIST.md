@@ -114,6 +114,25 @@
 - [x] Persistência da correção verificada no filesystem
 - [x] Validação E2E: S4.2 (→ 307), S4.3 (→ 307)
 
+### P6 — Daemon Bridge: TypeScript Strict Compliance
+
+| Item           | Detalhe                                                                                                     |
+| -------------- | ----------------------------------------------------------------------------------------------------------- |
+| **Arquivos**   | `src/app/api/products/route.ts`, `src/app/api/sync/daemon/route.ts`, `src/lib/daemon-marketplace-bridge.ts` |
+| **Severidade** | ALTO                                                                                                        |
+| **Tipo**       | TypeScript type errors (3 erros bloqueando `next build`)                                                    |
+| **Causa Raiz** | Incompatibilidade de tipos entre interfaces DaemonProduct/DaemonMarketplaceStats/SyncResult e uso           |
+| **Sintoma**    | `next build` falha com 3 erros de tipo; deploy impossível                                                   |
+| **Correção**   | `String(p.id).slice(-6)`, `stats.total_products`, `{...result}`                                             |
+| **Impacto**    | Build de produção compila sem erros; deploy habilitado                                                      |
+
+- [x] 3 erros de tipo identificados via `next build`
+- [x] `products/route.ts`: `p.id.slice(-6)` → `String(p.id).slice(-6)` (DaemonProduct.id = number)
+- [x] `sync/daemon/route.ts`: `stats.listings` → `stats.total_products` (interface correta)
+- [x] `daemon-marketplace-bridge.ts`: `result` → `{ ...result }` (SyncResult → Record compat)
+- [x] Build `next build` passa sem erros TypeScript
+- [x] Validação E2E: 41/41 PASSED (confirmado após correções)
+
 ---
 
 ## Pós-Operatório (Validação E2E Completa)
@@ -186,6 +205,7 @@
 | P3 (schemas.ts)    | E2.4, P3.1-P3.7 (source param) | ST6.5, ST6.7*          |
 | P4 (route.ts)      | E2.4, E2.5 (local products)    | P3.1-P3.7*             |
 | P5 (e2e-v5.sh)     | S4.2, S4.3 (auth isolation)    | N/A                    |
+| P6 (daemon bridge) | Build TypeScript (next build)  | E2.4, P3.1-P3.7*       |
 
 ---
 
@@ -193,7 +213,7 @@
 
 - [x] Nenhum teste existente foi quebrado pelas correções
 - [x] 171 testes unitários (vitest) não afetados
-- [x] Build Next.js standalone sem erros
+- [x] Build Next.js standalone sem erros (TypeScript strict pass)
 - [x] Middleware intercepta corretamente (auth + CSRF + rate limit)
 - [x] Banco SQLite intacto (1504 produtos, 6 agentes)
 - [x] Sessões HMAC-SHA256 geradas e verificadas com sucesso
@@ -204,16 +224,16 @@
 
 ## Veredicto Final
 
-| Métrica               | Valor                                                |
-| --------------------- | ---------------------------------------------------- |
-| **Patches Aplicados** | 5                                                    |
-| **Linhas Alteradas**  | 7 (3 modificadas, 1 adicionada, 1 removida, 2 teste) |
-| **Testes E2E**        | 41/41 PASSED                                         |
-| **Duração da Suite**  | 31s                                                  |
-| **Taxa de Aprovação** | 100%                                                 |
-| **Regressões**        | 0                                                    |
-| **Status**            | **ALL TESTS PASSED**                                 |
+| Métrica               | Valor                                          |
+| --------------------- | ---------------------------------------------- |
+| **Patches Aplicados** | 6                                              |
+| **Linhas Alteradas**  | 10 (3 mod, 1 add, 1 rem, 2 teste, 3 TS strict) |
+| **Testes E2E**        | 41/41 PASSED                                   |
+| **Duração da Suite**  | 31s                                            |
+| **Taxa de Aprovação** | 100%                                           |
+| **Regressões**        | 0                                              |
+| **Status**            | **ALL TESTS PASSED**                           |
 
 ---
 
-_Gerado por DevOps PHD — AI Store Nexus v2.0.0 — 2026-09-23_
+_Gerado por DevOps PHD — AI Store Nexus v2.0.0 — 2026-09-23 (P6 adicionado)_

@@ -1080,7 +1080,7 @@ bash scripts/e2e-v5.sh
 
 ## Surgical Patches — v2.0.0 Audit
 
-> **5 corrections applied with surgical precision, validated E2E 41/41**  
+> **6 corrections applied with surgical precision, validated E2E 41/41, build TypeScript limpo**  
 > Full checklist: [`SURGICAL_CHECKLIST.md`](./SURGICAL_CHECKLIST.md)
 
 ### Critical (P1 + P2) — Session Format Verification Off-by-One
@@ -1111,6 +1111,14 @@ After:  return parts.length === 2 && parts[0].length > 0 && (parts[1].length ===
 Tests S4.2/S4.3 in `scripts/e2e-v5.sh` used the shared cookie jar (authenticated from Phase 2), receiving HTTP 200 instead of expected 307 redirect for unauthenticated access.
 
 **Fix:** Replaced `http_code` with bare `curl` (no cookie jar) for auth guard tests.
+
+### High (P6) — TypeScript Strict Compliance for Daemon Bridge
+
+Three type errors in the daemon marketplace bridge blocked the Next.js production build (`next build` failed with TypeScript compilation errors). These were not caught by E2E (which runs in dev mode) but would prevent deployment.
+
+1. **`products/route.ts:157`** — `p.id.slice(-6)` failed because `DaemonProduct.id` is `number`, not `string`. Fix: `String(p.id).slice(-6)`.
+2. **`sync/daemon/route.ts:30`** — `stats.listings` and `stats.active` don't exist on `DaemonMarketplaceStats`. Fix: replaced with `stats.total_products` and `stats.total_calls`.
+3. **`daemon-marketplace-bridge.ts:407`** — `SyncResult` interface is not assignable to `Record<string, unknown>`. Fix: spread into plain object `{ ...result }`.
 
 ---
 
@@ -1177,8 +1185,8 @@ Prisma Fields:        18+ per Product entity
 MCP Servers:          12 store-side servers, 18 registered packages
 Unit Tests:           171 passing (9 files)
 E2E Tests:            41 passing (v5.0.0, 6 phases, 31s)
-Surgical Patches:     5 validated (2 critical, 2 high, 1 medium)
-Build Output:         Next.js standalone (server.js)
+Surgical Patches:     6 validated (2 critical, 3 high, 1 medium)
+Build Output:         Next.js standalone (server.js) — TypeScript strict pass
 Database Records:     2,704 products
 ```
 
@@ -1186,15 +1194,15 @@ Database Records:     2,704 products
 
 ## Version History
 
-| Version       | Date    | Key Changes                                                                                                                                          |
-| ------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `2.0.0`       | 2026-09 | Surgical audit: 5 patches (session format off-by-one P1+P2, schema source P3, routing directive P4, E2E isolation P5), E2E v5 41/41, README Devs PHD |
-| `1.0.0`       | 2026-08 | Mainnet release, HostGator CGI deployment, single version source, lazy session, deploy pipeline, UX overhaul                                         |
-| `0.7.0-alpha` | 2026-08 | Observability, security hardening, smoke tests, migration system                                                                                     |
-| `0.6.0-alpha` | 2026-08 | HTTPS (Caddy), static module fix, end-to-end content access, deploy fix                                                                              |
-| `0.5.0-alpha` | 2026-08 | Atomic cart, E2E suite, reputation ring, 5-stage CI, bundle split                                                                                    |
-| `0.4.0-alpha` | 2026-08 | Plugin manifest, sandbox, reputation engine, error resolver, metrics                                                                                 |
-| `0.3.0-beta`  | 2026-07 | ISR 1504 pages, Wallet SDK, 131 tests, Docker hardening                                                                                              |
+| Version       | Date    | Key Changes                                                                                                                                                |
+| ------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `2.0.0`       | 2026-09 | Surgical audit: 6 patches (session format P1+P2, schema source P3, routing P4, E2E isolation P5, TS strict P6), E2E v5 41/41, build clean, README Devs PHD |
+| `1.0.0`       | 2026-08 | Mainnet release, HostGator CGI deployment, single version source, lazy session, deploy pipeline, UX overhaul                                               |
+| `0.7.0-alpha` | 2026-08 | Observability, security hardening, smoke tests, migration system                                                                                           |
+| `0.6.0-alpha` | 2026-08 | HTTPS (Caddy), static module fix, end-to-end content access, deploy fix                                                                                    |
+| `0.5.0-alpha` | 2026-08 | Atomic cart, E2E suite, reputation ring, 5-stage CI, bundle split                                                                                          |
+| `0.4.0-alpha` | 2026-08 | Plugin manifest, sandbox, reputation engine, error resolver, metrics                                                                                       |
+| `0.3.0-beta`  | 2026-07 | ISR 1504 pages, Wallet SDK, 131 tests, Docker hardening                                                                                                    |
 
 ---
 
