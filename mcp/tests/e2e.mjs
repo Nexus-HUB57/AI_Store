@@ -17,9 +17,10 @@
  */
 
 import { McpClient } from "../src/lib/mcp/client.ts";
-import { AipkgMcpManifest } from "../src/lib/mcp/types.ts";
 
-const manifest: AipkgMcpManifest = {
+process.env.DATABASE_URL ??= "file:./db/custom.db";
+
+const manifest = {
   aipkg: "1.0",
   kind: "mcp",
   name: "mcp-catalog",
@@ -30,8 +31,8 @@ const manifest: AipkgMcpManifest = {
   category: "catalog",
   mcp: {
     transport: "stdio",
-    command: "bun",
-    args: ["run", "src/servers/catalog/server.ts"],
+    command: "node_modules/.bin/tsx",
+    args: ["mcp/src/servers/catalog/server.ts"],
     capabilities: { tools: true, resources: true, prompts: false, logging: true, sampling: false },
     minProtocolVersion: "2024-11-05",
   },
