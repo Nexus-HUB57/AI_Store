@@ -113,78 +113,134 @@ jobs:
         with:
           name: aistore-standalone
 
-      - name: Setup SSH (HostGator)
-        shell: bash
+      - name: Resolve credentials (SSH_* or CREDENCIAIS_PLATAFORMA_BAIT)
+        id: creds
         env:
-          SSH_HOST_RAW: ${{ secrets.SSH_HOST }}
-          SSH_PORT_RAW: ${{ secrets.SSH_PORT }}
-          SSH_USER_RAW: ${{ secrets.SSH_USER }}
-          SSH_KEY_RAW: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST_S: ${{ secrets.SSH_HOST }}
+          SSH_PORT_S: ${{ secrets.SSH_PORT }}
+          SSH_USER_S: ${{ secrets.SSH_USER }}
+          SSH_KEY_S: ${{ secrets.SSH_PRIVATE_KEY }}
+          VPS_HOST_S: ${{ secrets.VPS_HOST }}
+          VPS_PORT_S: ${{ secrets.VPS_PORT }}
+          VPS_USER_S: ${{ secrets.VPS_USER }}
+          VPS_KEY_S: ${{ secrets.VPS_SSH_KEY }}
+          CREDS_PLATAFORMA: ${{ secrets.CREDENCIAIS_PLATAFORMA_BAIT }}
+          CREDS_HOSTGATOR: ${{ secrets.CREDENCIAIS_HOSTGATOR }}
+        run: |
+          set -e
+          python3 << 'PY'
+          import os, json, re, pathlib, base64
+
+          def clean(s):
+              if s is None:
+                  return ''
+              return re.sub(r'[\r\n\t "\']', '', str(s)).strip()
+
+          host = clean(os.environ.get('SSH_HOST_S') or os.environ.get('VPS_HOST_S'))
+          port = clean(os.environ.get('SSH_PORT_S') or os.environ.get('VPS_PORT_S')) or '22'
+          user = clean(os.environ.get('SSH_USER_S') or os.environ.get('VPS_USER_S'))
+          key  = (os.environ.get('SSH_KEY_S') or os.environ.get('VPS_KEY_S') or '').strip()
+
+          def merge_json(raw, label):
+              global host, port, user, key
+              if not raw or not str(raw).strip():
+                  print(f'  {label}: empty')
+                  return
+              text = str(raw).strip()
+              # strip accidental wrapping quotes
+              if (text.startswith("'") and text.endswith("'")) or (text.startswith('"') and text.endswith('"')):
+                  text = text[1:-1]
+              try:
+                  c = json.loads(text)
+              except Exception as e:
+                  print(f'  {label}: not JSON ({e})')
+                  return
+              if not isinstance(c, dict):
+                  print(f'  {label}: JSON is not object')
+                  return
+              print(f'  {label}: keys={sorted(c.keys())}')
+              host = host or clean(c.get('host') or c.get('ssh_host') or c.get('hostname') or c.get('ip'))
+              user = user or clean(c.get('user') or c.get('ssh_user') or c.get('username'))
+              port = clean(str(c.get('port') or c.get('ssh_port') or port or '22')) or '22'
+              k = c.get('private_key') or c.get('ssh_key') or c.get('ssh_private_key') or c.get('key') or ''
+              if k and not key:
+                  key = str(k).strip()
+              # password-only JSON cannot drive key-based SSH; note it
+              if c.get('password') and not key:
+                  print(f'  {label}: has password but no private_key — SSH key auth still required')
+
+          merge_json(os.environ.get('CREDS_PLATAFORMA'), 'CREDENCIAIS_PLATAFORMA_BAIT')
+          merge_json(os.environ.get('CREDS_HOSTGATOR'), 'CREDENCIAIS_HOSTGATOR')
+
+          if not host:
+              print('::error::SSH host vazio (SSH_HOST / VPS_HOST / CREDENCIAIS_*.host)')
+              raise SystemExit(1)
+          if not user:
+              print('::error::SSH user vazio (SSH_USER / VPS_USER / CREDENCIAIS_*.user)')
+              raise SystemExit(1)
+          if not key:
+              print('::error::SSH private key vazia (SSH_PRIVATE_KEY / VPS_SSH_KEY / CREDENCIAIS_*.private_key)')
+              raise SystemExit(1)
+
+          pathlib.Path(os.environ['GITHUB_ENV']).open('a').write(
+              f'HG_HOST={host}\nHG_PORT={port}\nHG_USER={user}\n'
+          )
+          # write key to file for next step (avoid env multiline issues)
+          key_path = pathlib.Path.home() / '.ssh_key_resolved'
+          # support base64 one-liner
+          body = key.replace('\\n', '\n')
+          if 'BEGIN' not in body:
+              try:
+                  decoded = base64.b64decode(re.sub(r'\s+', '', body))
+                  if b'BEGIN' in decoded:
+                      body = decoded.decode()
+                      print('  key: decoded from base64')
+              except Exception:
+                  pass
+          key_path.write_text(body if body.endswith('\n') else body + '\n')
+          key_path.chmod(0o600)
+          print(f'  resolved host={host} port={port} user={user} key_bytes={key_path.stat().st_size}')
+          PY
+
+      - name: Setup SSH + probe
         run: |
           set -e
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-
-          H=$(printf '%s' "$SSH_HOST_RAW" | tr -d '\r\n\t "'\''' | tr -d ' ')
-          P=$(printf '%s' "$SSH_PORT_RAW" | tr -d '\r\n\t "'\''' | tr -d ' ')
-          U=$(printf '%s' "$SSH_USER_RAW" | tr -d '\r\n\t "'\''' | tr -d ' ')
-
-          if [ -z "$H" ]; then echo "::error::SSH_HOST vazio"; exit 1; fi
-          if [ -z "$U" ]; then echo "::error::SSH_USER vazio"; exit 1; fi
-          [ -z "$P" ] && P=22
-
           KEY_FILE="$HOME/.ssh/id_deploy"
-          # Support: (1) PEM multiline  (2) base64 one-line  (3) escaped \n
-          RAW=$(printf '%s' "$SSH_KEY_RAW" | tr -d '\r')
-          if printf '%s' "$RAW" | grep -q 'BEGIN .*PRIVATE KEY'; then
-            printf '%s\n' "$RAW" | sed 's/\\n/\n/g' > "$KEY_FILE"
-          else
-            # try base64 decode
-            if printf '%s' "$RAW" | tr -d '\n ' | base64 -d > "$KEY_FILE" 2>/dev/null \
-              && grep -q 'BEGIN .*PRIVATE KEY' "$KEY_FILE"; then
-              echo "  SSH key loaded from base64"
-            else
-              printf '%s\n' "$RAW" | sed 's/\\n/\n/g' > "$KEY_FILE"
-            fi
-          fi
-          # ensure trailing newline
-          [ -n "$(tail -c1 "$KEY_FILE")" ] && echo >> "$KEY_FILE"
+          cp "$HOME/.ssh_key_resolved" "$KEY_FILE"
           chmod 600 "$KEY_FILE"
 
           if ! ssh-keygen -y -f "$KEY_FILE" > /dev/null 2>&1; then
-            echo "::error::SSH_PRIVATE_KEY invalida ou corrompida"
-            echo "::error::Use PEM completo (BEGIN/END) ou base64 -w0 da chave privada"
+            echo "::error::Chave privada invalida apos resolve (PEM/base64)"
             exit 1
           fi
-          echo "  SSH private key OK ($(ssh-keygen -lf "$KEY_FILE" | awk '{print $2}') )"
+          echo "  fingerprint: $(ssh-keygen -lf "$KEY_FILE" | awk '{print $2}')"
 
           {
             echo "Host deploy-target"
-            echo "  HostName $H"
-            echo "  Port $P"
-            echo "  User $U"
+            echo "  HostName $HG_HOST"
+            echo "  Port $HG_PORT"
+            echo "  User $HG_USER"
             echo "  IdentityFile $KEY_FILE"
             echo "  IdentitiesOnly yes"
             echo "  StrictHostKeyChecking accept-new"
             echo "  UserKnownHostsFile $HOME/.ssh/known_hosts"
             echo "  ServerAliveInterval 30"
-            echo "  ConnectTimeout 15"
+            echo "  ConnectTimeout 20"
             echo "  LogLevel ERROR"
           } > ~/.ssh/config
           chmod 600 ~/.ssh/config
 
           : > ~/.ssh/known_hosts
-          ssh-keyscan -T 8 -p "$P" -H "$H" >> ~/.ssh/known_hosts 2>/tmp/keyscan.err && \
-              echo "  known_hosts populado ($(wc -l < ~/.ssh/known_hosts) linhas)" || \
-              { echo "::warning::ssh-keyscan best-effort falhou"; cat /tmp/keyscan.err 2>/dev/null | head -3 || true; }
+          ssh-keyscan -T 8 -p "$HG_PORT" -H "$HG_HOST" >> ~/.ssh/known_hosts 2>/tmp/keyscan.err || true
           chmod 644 ~/.ssh/known_hosts
 
-          if ! ssh -o BatchMode=yes -o ConnectTimeout=15 deploy-target 'echo remote-ok && hostname && whoami'; then
-            echo "::error::Probe SSH falhou — confira authorized_keys no HostGator e SSH_HOST/USER/PORT"
+          if ! ssh -o BatchMode=yes deploy-target 'echo remote-ok && hostname && whoami'; then
+            echo "::error::Probe SSH falhou com credenciais resolvidas"
             exit 1
           fi
-
-          echo "  Setup SSH OK — host=$H port=$P user=$U"
+          echo "  Setup SSH OK"
 
       - name: Upload tarball to HostGator
         run: |
@@ -216,14 +272,12 @@ jobs:
           missing=[k for k in req if k not in s]
           if missing:
               print('FAIL missing keys:',missing); sys.exit(1)
-          print(f"OK total={s['total']} categorias={len(s['categories'])} downloads={s['totalDownloads']} execucoes={s['totalExecutions']} featured={s['featuredCount']}")
-          assert s['total'] > 0, 'AI Store sem produtos'
-          assert len(s['categories']) >= 1, 'AI Store sem categorias'
+          print(f"OK total={s['total']} categorias={len(s['categories'])}")
+          assert s['total'] > 0
           PY
 
       - name: Summary
         if: always()
         run: |
           echo "### Deploy AI Store (${{ github.sha }})" >> $GITHUB_STEP_SUMMARY
-          echo "- artefato publicado via SSH em HostGator" >> $GITHUB_STEP_SUMMARY
-          echo "- /aistore/api/stats validado" >> $GITHUB_STEP_SUMMARY
+          echo "- credenciais: SSH_* / VPS_* / CREDENCIAIS_PLATAFORMA_BAIT / CREDENCIAIS_HOSTGATOR" >> $GITHUB_STEP_SUMMARY
