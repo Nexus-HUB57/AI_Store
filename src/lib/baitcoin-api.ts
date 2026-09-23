@@ -186,7 +186,14 @@ export async function getBaitcoinMarketplaceProducts(params?: {
   if (params?.max_price) sp.set('max_price', String(params.max_price))
   if (params?.min_rating) sp.set('min_rating', String(params.min_rating))
   const qs = sp.toString()
-  return apiRequest<Record<string, unknown>>(`/marketplace/products${qs ? `?${qs}` : ''}`)
+  try {
+    return await apiRequest<Record<string, unknown>>(`/marketplace/products${qs ? `?${qs}` : ''}`)
+  } catch (_daemonErr) {
+    // BAITCOIN_DB_FALLBACK: daemon marketplace offline (404) -> usa rota local /api/products (Prisma)
+    const r = await fetch(`/api/products${qs ? `?${qs}` : ''}`)
+    if (!r.ok) throw _daemonErr
+    return r.json()
+  }
 }
 
 /** Purchase a marketplace service on the daemon
