@@ -1,0 +1,32 @@
+# Local / VPS staging stack (does not touch production HostGator paths)
+# Usage: docker compose -f docker-compose.staging.yml up --build
+
+services:
+  ai-store-staging:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_BASE_PATH: /aistore-staging
+        NEXT_PUBLIC_BASE_URL: http://localhost:3100/aistore-staging
+    container_name: ai-store-staging
+    ports:
+      - "3100:3000"
+    volumes:
+      - store-db-staging:/app/db
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=file:/app/db/staging.db
+      - SESSION_SECRET=staging-local-dev-secret-32c
+      - NEXT_PUBLIC_BASE_PATH=/aistore-staging
+      - NEXT_PUBLIC_BASE_URL=http://localhost:3100/aistore-staging
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/aistore-staging/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  store-db-staging:

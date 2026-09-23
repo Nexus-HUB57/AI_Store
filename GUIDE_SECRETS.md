@@ -1,114 +1,73 @@
-# Guia de Segredos — AI Store (GitHub Actions → HostGator)
+# Guia de Segredos — AI Store (GitHub Actions)
 
-Deploy de produção usa **SSH** (não FTP). O job `publish-hostgator` em
-`.github/workflows/deploy.yml` lê estes secrets.
+## Production (`main` → `deploy.yml`)
+
+Deploy HostGator via **SSH** (chave) ou **FTP** (password, porta 21).
+
+| Secret | Descrição |
+|--------|-----------|
+| `SSH_HOST` / `SSH_USER` / `SSH_PORT` / `SSH_PRIVATE_KEY` | Deploy SSH |
+| `VPS_HOST` / `VPS_USER` / `VPS_PORT` / `VPS_SSH_KEY` | Alias VPS |
+| `CREDENCIAIS_PLATAFORMA_BAIT` | JSON composto (ver abaixo) |
+| `CREDENCIAIS_HOSTGATOR` | JSON FTP legado |
+
+### JSON composto (FTP)
+
+```json
+{
+  "host": "ftp.exemplo.com",
+  "user": "cpanel_user",
+  "password": "...",
+  "port": 21
+}
+```
+
+### JSON composto (SSH)
+
+```json
+{
+  "host": "gator.exemplo.com",
+  "user": "cpanel_user",
+  "port": 22,
+  "private_key": "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----"
+}
+```
+
+O workflow escolhe **FTP** se houver `password` e porta 21 (ou chave inválida);
+**SSH** se a private key parsear com `ssh-keygen -y`.
 
 ---
 
-## Secrets obrigatórios (Deploy SSH)
+## Staging (`staging` → `deploy-staging.yml`)
 
-| Nome | Descrição | Exemplo |
-|------|-----------|---------|
-| `SSH_HOST` | Hostname ou IP do HostGator | `gatorXXXX.hostgator.com` ou IP |
-| `SSH_USER` | Usuário cPanel / SSH | `usuario` |
-| `SSH_PORT` | Porta SSH | `22` (ou a porta custom do plano) |
-| `SSH_PRIVATE_KEY` | Chave **privada** OpenSSH (PEM) | ver abaixo |
+| Secret | Descrição |
+|--------|-----------|
+| Mesmos de produção | Reutilizados por default |
+| `STAGING_SSH_HOST` / `STAGING_SSH_USER` / `STAGING_SSH_PORT` / `STAGING_SSH_PRIVATE_KEY` | Override opcional |
+| `STAGING_FTP_PASS` | Override password FTP |
 
-## Secrets recomendados (app)
+- **basePath:** `/aistore-staging`
+- **URL:** https://www.mybait.org/aistore-staging/
+- **Remote:** `public_html/aistore-staging-codebase.tar.gz` (não mistura com prod)
+- **GitHub Environment:** `staging` (Settings → Environments)
 
-| Nome | Descrição |
-|------|-----------|
-| `SESSION_SECRET` | ≥16 chars aleatórios (runtime produção no servidor) |
-
-> O workflow de CI também usa `DATABASE_URL` / `NEXT_PUBLIC_*` como env de **build**
-> (valores de build, não substituem secrets de runtime no HostGator).
+Detalhes: [`docs/STAGING_CICD.md`](docs/STAGING_CICD.md)
 
 ---
 
-## 1. Gerar par de chaves (máquina local)
+## App runtime
 
-```bash
-ssh-keygen -t ed25519 -C "github-actions-aistore-deploy" -f ./id_aistore_deploy -N ""
-```
-
-- `id_aistore_deploy.pub` → HostGator  
-- `id_aistore_deploy` → secret `SSH_PRIVATE_KEY` no GitHub  
-
-**Nunca** commite a chave privada no repositório.
+| Secret / env | Uso |
+|--------------|-----|
+| `SESSION_SECRET` | ≥16 chars (produção no servidor) |
+| `DATABASE_URL` | SQLite path (build CI usa `file:./db/custom.db`) |
 
 ---
 
-## 2. Instalar a chave pública no HostGator
+## Como cadastrar
 
-No servidor (Terminal cPanel, SSH ou *SSH Access*):
-
-```bash
-mkdir -p ~/.ssh
-chmod 700 ~/.ssh
-touch ~/.ssh/authorized_keys
-chmod 600 ~/.ssh/authorized_keys
-# cole UMA linha da chave pública:
-echo 'ssh-ed25519 AAAA... github-actions-aistore-deploy' >> ~/.ssh/authorized_keys
-```
-
-Confirme no cPanel → **SSH Access** que SSH está habilitado para a conta.
-
-Teste local (com a privada):
-
-```bash
-ssh -i ./id_aistore_deploy -p 22 USUARIO@HOST 'echo ok && hostname && whoami'
-```
-
----
-
-## 3. Gravar secrets no GitHub
-
-1. Repo **AI_Store** → **Settings** → **Secrets and variables** → **Actions**
-2. **New repository secret** (ou Update) para cada nome da tabela
-3. Em `SSH_PRIVATE_KEY`, cole o arquivo **inteiro**, incluindo:
-
-```
------BEGIN OPENSSH PRIVATE KEY-----
-...
------END OPENSSH PRIVATE KEY-----
-```
-
-Alternativa mais robusta (uma linha, sem quebra de linha no UI):
-
-```bash
-base64 -w0 id_aistore_deploy | pbcopy   # macOS
-# ou: base64 -w0 id_aistore_deploy
-```
-
-Cole o base64 em `SSH_PRIVATE_KEY`. O workflow detecta e decodifica.
-
-### Formato que quebra o parse (evitar)
-
-- Aspas em volta da chave  
-- Só a linha `ssh-ed25519 AAAA...` (isso é a **pública**)  
-- CRLF / espaços no início de cada linha  
-- Chave truncada (faltando BEGIN/END)
-
----
-
-## 4. Validar e disparar deploy
-
-```text
-Actions → Deploy AI Store to HostGator → Run workflow
-```
-
-O step **Setup SSH** deve imprimir `Setup SSH OK` e o probe `remote-ok`.
-Se aparecer `SSH_PRIVATE_KEY invalida ou corrompida`, regrave o secret
-(PEM completo ou base64).
-
----
-
-## Mapa antigo (FTP — legado)
-
-`GUIDE_SECRETS` anterior listava `FTP_HOST` / `FTP_USER` / `FTP_PASS`.
-O `deploy.yml` atual **não** usa FTP; use a tabela SSH acima.
-Pode remover secrets FTP se não forem usados por outro workflow.
-
----
+1. Repo → **Settings** → **Secrets and variables** → **Actions**
+2. **New repository secret** (ou secret no Environment `staging` / `production`)
+3. Nunca commitar chaves/senhas no git
 
 _Nexus AI-OS — AI Store_

@@ -1,0 +1,289 @@
+name: Deploy Staging (AI Store)
+
+on:
+  push:
+    branches: [staging]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  pull_request:
+    branches: [staging, main]
+  workflow_dispatch:
+    inputs:
+      skip_deploy:
+        description: 'Skip HostGator staging publish (build only)'
+        required: false
+        default: 'false'
+        type: boolean
+
+concurrency:
+  group: deploy-aistore-staging
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20.18.0'
+  DATABASE_URL: 'file:./db/custom.db'
+  NEXT_PUBLIC_BASE_PATH: '/aistore-staging'
+  NEXT_PUBLIC_BASE_URL: 'https://www.mybait.org/aistore-staging'
+  SESSION_SECRET: 'staging-ci-build-only-not-prod-32'
+  NEXT_TELEMETRY_DISABLED: '1'
+
+jobs:
+  test:
+    name: Test (staging)
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      DATABASE_URL: 'file:db/test.db'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: mkdir -p db && npx prisma generate && npx prisma db push
+      - run: npx vitest run --reporter=verbose 2>&1 | tail -40
+
+  build:
+    name: Build staging artifact
+    runs-on: ubuntu-latest
+    needs: [test]
+    outputs:
+      artifact_sha: ${{ steps.hash.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Prepare DB for SSG
+        run: |
+          mkdir -p db
+          if [ ! -f db/custom.db ]; then
+            npx prisma db push --skip-generate || true
+          fi
+      - run: npx prisma generate
+      - name: Build (basePath=/aistore-staging)
+        run: npm run build
+        env:
+          NEXT_PUBLIC_BASE_PATH: /aistore-staging
+          NEXT_PUBLIC_BASE_URL: https://www.mybait.org/aistore-staging
+      - name: Package standalone
+        run: |
+          cd .next/standalone
+          tar czf ../../aistore-staging-standalone.tar.gz .
+      - id: hash
+        run: echo "sha=$(sha256sum aistore-staging-standalone.tar.gz | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aistore-staging-standalone
+          path: aistore-staging-standalone.tar.gz
+          retention-days: 14
+
+  publish-staging:
+    name: Publish staging (HostGator)
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: |
+      github.event_name != 'pull_request' &&
+      github.event.inputs.skip_deploy != 'true' &&
+      needs.build.result == 'success'
+    environment:
+      name: staging
+      url: https://www.mybait.org/aistore-staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: aistore-staging-standalone
+
+      - name: Resolve credentials
+        id: creds
+        env:
+          SSH_HOST_S: ${{ secrets.SSH_HOST }}
+          SSH_PORT_S: ${{ secrets.SSH_PORT }}
+          SSH_USER_S: ${{ secrets.SSH_USER }}
+          SSH_KEY_S: ${{ secrets.SSH_PRIVATE_KEY }}
+          CREDS_PLATAFORMA: ${{ secrets.CREDENCIAIS_PLATAFORMA_BAIT }}
+          CREDS_HOSTGATOR: ${{ secrets.CREDENCIAIS_HOSTGATOR }}
+          # Optional staging-only overrides
+          STAGING_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          STAGING_USER: ${{ secrets.STAGING_SSH_USER }}
+          STAGING_PORT: ${{ secrets.STAGING_SSH_PORT }}
+          STAGING_KEY: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+          STAGING_FTP_PASS: ${{ secrets.STAGING_FTP_PASS }}
+        run: |
+          set -e
+          python3 << 'PY'
+          import os, json, re, pathlib, base64, subprocess
+
+          def clean(s):
+              if s is None: return ''
+              return re.sub(r'[\r\n\t "\']', '', str(s)).strip()
+
+          st = {
+              'host': clean(os.environ.get('STAGING_HOST') or os.environ.get('SSH_HOST_S')),
+              'port': clean(os.environ.get('STAGING_PORT') or os.environ.get('SSH_PORT_S')),
+              'user': clean(os.environ.get('STAGING_USER') or os.environ.get('SSH_USER_S')),
+              'key': (os.environ.get('STAGING_KEY') or os.environ.get('SSH_KEY_S') or '').strip(),
+              'password': (os.environ.get('STAGING_FTP_PASS') or '').strip(),
+          }
+
+          def merge_json(raw, label):
+              if not raw or not str(raw).strip():
+                  print(f'  {label}: empty'); return
+              text = str(raw).strip()
+              if (text[0] == text[-1]) and text[0] in "'\"":
+                  text = text[1:-1]
+              try:
+                  c = json.loads(text)
+              except Exception as e:
+                  print(f'  {label}: not JSON ({e})'); return
+              if not isinstance(c, dict): return
+              print(f'  {label}: keys={sorted(c.keys())}')
+              st['host'] = st['host'] or clean(c.get('host') or c.get('ftp_host') or c.get('hostname'))
+              st['user'] = st['user'] or clean(c.get('user') or c.get('ftp_user') or c.get('username'))
+              p = c.get('port') or c.get('ftp_port') or c.get('ssh_port')
+              if p is not None and str(p).strip():
+                  st['port'] = clean(str(p))
+              k = c.get('private_key') or c.get('ssh_key') or c.get('key') or ''
+              if k and not st['key']:
+                  st['key'] = str(k).strip()
+              pw = c.get('password') or c.get('pass') or c.get('ftp_pass') or ''
+              if pw and not st['password']:
+                  st['password'] = str(pw)
+
+          merge_json(os.environ.get('CREDS_PLATAFORMA'), 'CREDENCIAIS_PLATAFORMA_BAIT')
+          merge_json(os.environ.get('CREDS_HOSTGATOR'), 'CREDENCIAIS_HOSTGATOR')
+
+          host, port, user = st['host'], st['port'], st['user']
+          key, password = st['key'], st['password']
+          if not host or not user:
+              print('::error::host/user vazios — configure secrets ou Environment staging')
+              raise SystemExit(1)
+
+          key_path = pathlib.Path.home() / '.ssh_key_resolved'
+          key_ok = False
+          if key:
+              body = key.replace('\\n', '\n')
+              if 'BEGIN' not in body:
+                  try:
+                      decoded = base64.b64decode(re.sub(r'\s+', '', body))
+                      if b'BEGIN' in decoded:
+                          body = decoded.decode()
+                  except Exception:
+                      pass
+              key_path.write_text(body if body.endswith('\n') else body + '\n')
+              key_path.chmod(0o600)
+              key_ok = subprocess.call(['ssh-keygen','-y','-f',str(key_path)],
+                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0
+
+          if password and (not key_ok or port in ('21','990','989','')):
+              mode = 'ftp'
+              port = port if port in ('21','990','989') else '21'
+          elif key_ok:
+              mode = 'ssh'
+              port = port or '22'
+          elif password:
+              mode = 'ftp'
+              port = port or '21'
+          else:
+              print('::error::Sem private_key valida nem password FTP')
+              raise SystemExit(1)
+
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write(f'HG_HOST={host}\nHG_PORT={port}\nHG_USER={user}\nHG_MODE={mode}\n')
+              if password:
+                  pf = pathlib.Path.home() / '.hg_pass'
+                  pf.write_text(password); pf.chmod(0o600)
+                  f.write(f'HG_PASS_FILE={pf}\n')
+          print(f'  staging mode={mode} host={host} port={port} user={user}')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as o:
+              o.write(f'mode={mode}\n')
+          PY
+
+      - name: Upload staging via SSH
+        if: steps.creds.outputs.mode == 'ssh'
+        run: |
+          set -e
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          cp "$HOME/.ssh_key_resolved" ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          {
+            echo "Host deploy-target"
+            echo "  HostName $HG_HOST"
+            echo "  Port $HG_PORT"
+            echo "  User $HG_USER"
+            echo "  IdentityFile $HOME/.ssh/id_deploy"
+            echo "  IdentitiesOnly yes"
+            echo "  StrictHostKeyChecking accept-new"
+            echo "  ConnectTimeout 20"
+          } > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+          scp aistore-staging-standalone.tar.gz deploy-target:~/public_html/aistore-staging-codebase.tar.gz
+          ssh deploy-target 'mkdir -p ~/public_html/aistore-staging ~/aistore-staging-api && bash ~/public_html/deploy-manual.sh || true'
+
+      - name: Install lftp
+        if: steps.creds.outputs.mode == 'ftp'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+
+      - name: Upload staging via FTP
+        if: steps.creds.outputs.mode == 'ftp'
+        run: |
+          set -e
+          PASS=$(cat "$HG_PASS_FILE")
+          echo "FTP staging → $HG_USER@$HG_HOST:$HG_PORT"
+          mkdir -p /tmp/stg-pkg
+          for f in hostgator/aistore-api.cgi hostgator/api.cgi hostgator/.htaccess \
+                   hostgator/setup_aistore.sh hostgator/deploy-manual.sh; do
+            [ -f "$f" ] && cp "$f" "/tmp/stg-pkg/$(basename "$f")"
+          done
+          cp aistore-staging-standalone.tar.gz /tmp/aistore-staging-codebase.tar.gz
+          python3 - <<'PY'
+          import os, pathlib
+          host=os.environ['HG_HOST']; port=os.environ['HG_PORT']
+          user=os.environ['HG_USER']; password=open(os.environ['HG_PASS_FILE']).read()
+          lines=[
+            'set ftp:ssl-force true',
+            'set ssl:verify-certificate no',
+            'set net:timeout 180',
+            'set ftp:passive-mode true',
+            f'open -p {port} -u {user},{password} {host}',
+            'mkdir -p public_html/aistore-staging',
+            'put /tmp/aistore-staging-codebase.tar.gz -o public_html/aistore-staging-codebase.tar.gz',
+          ]
+          pkg=pathlib.Path('/tmp/stg-pkg')
+          if (pkg/'aistore-api.cgi').exists() or (pkg/'api.cgi').exists():
+            src='aistore-api.cgi' if (pkg/'aistore-api.cgi').exists() else 'api.cgi'
+            lines += [f'put /tmp/stg-pkg/{src} -o public_html/aistore-staging/api.cgi', 'chmod 755 public_html/aistore-staging/api.cgi']
+          if (pkg/'.htaccess').exists():
+            lines.append('put /tmp/stg-pkg/.htaccess -o public_html/aistore-staging/.htaccess')
+          if (pkg/'deploy-manual.sh').exists():
+            lines += ['put /tmp/stg-pkg/deploy-manual.sh -o public_html/deploy-manual-staging.sh', 'chmod 755 public_html/deploy-manual-staging.sh']
+          lines.append('bye')
+          pathlib.Path('/tmp/lftp_stg.txt').write_text('\n'.join(lines)+'\n')
+          PY
+          lftp -f /tmp/lftp_stg.txt
+          echo "[+] Staging FTP upload complete"
+
+      - name: Verify staging endpoints
+        continue-on-error: true
+        run: |
+          set +e
+          for path in /aistore-staging/ /aistore-staging/api/health /aistore-staging/api/stats; do
+            code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 20 "https://www.mybait.org$path" || echo 000)
+            echo "  $path → $code"
+          done
+          echo "::notice::Staging URL: https://www.mybait.org/aistore-staging/"
+          echo "::notice::Se 404: extrair tarball no servidor (deploy-manual apontando para aistore-staging-codebase.tar.gz)"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Staging deploy (${{ github.sha }})" >> $GITHUB_STEP_SUMMARY
+          echo "- branch: \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- mode: \`${{ steps.creds.outputs.mode }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- basePath: \`/aistore-staging\`" >> $GITHUB_STEP_SUMMARY
+          echo "- URL: https://www.mybait.org/aistore-staging/" >> $GITHUB_STEP_SUMMARY
+          echo "- artifact sha: \`${{ needs.build.outputs.artifact_sha }}\`" >> $GITHUB_STEP_SUMMARY
