@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
   pull_request:
 
 concurrency:
@@ -200,7 +200,6 @@ jobs:
 
       - name: Validate docker-compose.prod.yml
         run: |
-          # Check YAML syntax and required keys
           if ! command -v docker compose &> /dev/null; then
             echo "Docker not available — skipping compose validation"
           else
