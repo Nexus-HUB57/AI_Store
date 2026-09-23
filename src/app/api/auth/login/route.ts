@@ -17,12 +17,42 @@ function generateReferralCode(): string {
   return code
 }
 
+/** Sign session or return a structured error response (never throw). */
+function trySignSession(agentId: string): { token: string } | { error: NextResponse } {
+  try {
+    return { token: signSession(agentId) }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('signSession failed:', msg)
+    if (msg.includes('SESSION_SECRET')) {
+      return {
+        error: NextResponse.json(
+          {
+            error: 'Sessão indisponível: SESSION_SECRET não configurado no servidor (mín. 16 chars).',
+            code: 'SESSION_SECRET_MISSING',
+          },
+          { status: 503 },
+        ),
+      }
+    }
+    return {
+      error: NextResponse.json(
+        { error: 'Erro ao criar sessão', code: 'SESSION_SIGN_FAILED' },
+        { status: 500 },
+      ),
+    }
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
     const parsed = validate(loginSchema, body)
     if (!parsed.success) {
-      return NextResponse.json({ error: parsed.error.message, details: parsed.error.details }, { status: 400 })
+      return NextResponse.json(
+        { error: parsed.error.message, details: parsed.error.details },
+        { status: 400 },
+      )
     }
     const { address, displayName, referralCode } = parsed.data
 
@@ -31,6 +61,9 @@ export async function POST(req: NextRequest) {
 
     if (existing) {
       const caps = JSON.parse(existing.capabilities || '[]')
+      const signed = trySignSession(existing.id)
+      if ('error' in signed) return signed.error
+
       const res = NextResponse.json({
         agent: {
           id: existing.id,
@@ -45,10 +78,12 @@ export async function POST(req: NextRequest) {
           isNew: false,
         },
       })
-      const sessionToken = signSession(existing.id)
-      res.cookies.set('agent_id', sessionToken, {
-        httpOnly: true, secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax', path: basePath + '/', maxAge: 60 * 60 * 24 * 30,
+      res.cookies.set('agent_id', signed.token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: basePath + '/',
+        maxAge: 60 * 60 * 24 * 30,
       })
       return res
     }
@@ -58,7 +93,6 @@ export async function POST(req: NextRequest) {
     let referredById = ''
     let referralBonusGiven = false
 
-    // Handle referral
     if (referralCode) {
       const referrer = await db.agent.findFirst({ where: { referralCode } })
       if (referrer) {
@@ -72,7 +106,7 @@ export async function POST(req: NextRequest) {
         displayName: displayName || address.slice(0, 12) + '...',
         role: 'buyer',
         reputation: 50,
-        balanceSats: 100000 + SIGNUP_BONUS, // base 100K + 100 BAIT bonus
+        balanceSats: 100000 + SIGNUP_BONUS,
         capabilities: JSON.stringify(['ML_INFERENCE', 'DATA_PROCESSING']),
         referralCode: code,
         referredBy: referredById,
@@ -80,7 +114,6 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // Create signup bonus transaction
     await db.transaction.create({
       data: {
         type: 'signup_bonus',
@@ -94,7 +127,6 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // Give referral bonus to referrer (atomic transaction)
     if (referredById) {
       await db.$transaction([
         db.agent.update({
@@ -123,11 +155,12 @@ export async function POST(req: NextRequest) {
           },
         }),
       ])
-
       referralBonusGiven = true
     }
 
     const caps = JSON.parse(agent.capabilities || '[]')
+    const signed = trySignSession(agent.id)
+    if ('error' in signed) return signed.error
 
     const res = NextResponse.json({
       agent: {
@@ -145,14 +178,29 @@ export async function POST(req: NextRequest) {
       referralBonusGiven,
       signupBonus: SIGNUP_BONUS,
     })
-    const sessionToken = signSession(agent.id)
-    res.cookies.set('agent_id', sessionToken, {
-      httpOnly: true, secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax', path: basePath + '/', maxAge: 60 * 60 * 24 * 30,
+    res.cookies.set('agent_id', signed.token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: basePath + '/',
+      maxAge: 60 * 60 * 24 * 30,
     })
     return res
   } catch (e) {
     console.error('Auth error:', e)
-    return NextResponse.json({ error: 'Erro na autenticação' }, { status: 500 })
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg.includes('SESSION_SECRET')) {
+      return NextResponse.json(
+        {
+          error: 'Sessão indisponível: SESSION_SECRET não configurado no servidor (mín. 16 chars).',
+          code: 'SESSION_SECRET_MISSING',
+        },
+        { status: 503 },
+      )
+    }
+    return NextResponse.json(
+      { error: 'Erro na autenticação', code: 'AUTH_INTERNAL' },
+      { status: 500 },
+    )
   }
 }
