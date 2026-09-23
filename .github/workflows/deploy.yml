@@ -58,7 +58,6 @@ jobs:
         run: |
           mkdir -p db
           if [ ! -f db/custom.db ]; then
-            echo "::warning::db/custom.db missing — generating empty schema for build"
             npx prisma db push --skip-generate || true
           fi
       - run: npx prisma generate
@@ -128,21 +127,22 @@ jobs:
         run: |
           set -e
           python3 << 'PY'
-          import os, json, re, pathlib, base64
+          import os, json, re, pathlib, base64, subprocess
 
           def clean(s):
               if s is None:
                   return ''
               return re.sub(r'[\r\n\t "\']', '', str(s)).strip()
 
-          host = clean(os.environ.get('SSH_HOST_S') or os.environ.get('VPS_HOST_S'))
-          port = clean(os.environ.get('SSH_PORT_S') or os.environ.get('VPS_PORT_S')) or ''
-          user = clean(os.environ.get('SSH_USER_S') or os.environ.get('VPS_USER_S'))
-          key  = (os.environ.get('SSH_KEY_S') or os.environ.get('VPS_KEY_S') or '').strip()
-          password = ''
+          st = {
+              'host': clean(os.environ.get('SSH_HOST_S') or os.environ.get('VPS_HOST_S')),
+              'port': clean(os.environ.get('SSH_PORT_S') or os.environ.get('VPS_PORT_S')),
+              'user': clean(os.environ.get('SSH_USER_S') or os.environ.get('VPS_USER_S')),
+              'key': (os.environ.get('SSH_KEY_S') or os.environ.get('VPS_KEY_S') or '').strip(),
+              'password': '',
+          }
 
           def merge_json(raw, label):
-              nonlocal host, port, user, key, password
               if not raw or not str(raw).strip():
                   print(f'  {label}: empty')
                   return
@@ -157,26 +157,28 @@ jobs:
               if not isinstance(c, dict):
                   return
               print(f'  {label}: keys={sorted(c.keys())}')
-              host = host or clean(c.get('host') or c.get('ssh_host') or c.get('hostname') or c.get('ip') or c.get('ftp_host'))
-              user = user or clean(c.get('user') or c.get('ssh_user') or c.get('username') or c.get('ftp_user'))
+              st['host'] = st['host'] or clean(c.get('host') or c.get('ssh_host') or c.get('hostname') or c.get('ip') or c.get('ftp_host'))
+              st['user'] = st['user'] or clean(c.get('user') or c.get('ssh_user') or c.get('username') or c.get('ftp_user'))
               p = c.get('port') or c.get('ssh_port') or c.get('ftp_port')
               if p is not None and str(p).strip():
-                  port = clean(str(p))
+                  st['port'] = clean(str(p))
               k = c.get('private_key') or c.get('ssh_key') or c.get('ssh_private_key') or c.get('key') or ''
-              if k and not key:
-                  key = str(k).strip()
+              if k and not st['key']:
+                  st['key'] = str(k).strip()
               pw = c.get('password') or c.get('pass') or c.get('ftp_pass') or c.get('ftp_password') or ''
-              if pw and not password:
-                  password = str(pw)
+              if pw and not st['password']:
+                  st['password'] = str(pw)
 
           merge_json(os.environ.get('CREDS_PLATAFORMA'), 'CREDENCIAIS_PLATAFORMA_BAIT')
           merge_json(os.environ.get('CREDS_HOSTGATOR'), 'CREDENCIAIS_HOSTGATOR')
+
+          host, port, user = st['host'], st['port'], st['user']
+          key, password = st['key'], st['password']
 
           if not host or not user:
               print('::error::host/user vazios apos resolve')
               raise SystemExit(1)
 
-          # materialize key file if present
           key_path = pathlib.Path.home() / '.ssh_key_resolved'
           key_ok = False
           if key:
@@ -190,46 +192,49 @@ jobs:
                       pass
               key_path.write_text(body if body.endswith('\n') else body + '\n')
               key_path.chmod(0o600)
-              import subprocess
-              key_ok = subprocess.call(['ssh-keygen', '-y', '-f', str(key_path)],
-                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0
+              key_ok = subprocess.call(
+                  ['ssh-keygen', '-y', '-f', str(key_path)],
+                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+              ) == 0
+              print(f'  key_ok={key_ok} bytes={key_path.stat().st_size if key_path.exists() else 0}')
 
-          # mode selection
-          if key_ok:
+          # Prefer FTP when we have password and (no valid key OR port is FTP)
+          if password and (not key_ok or port in ('21', '990', '989', '')):
+              mode = 'ftp'
+              if not port or port in ('22',):
+                  # JSON FTP secrets often omit port; default 21
+                  if not key_ok:
+                      port = port if port in ('21', '990', '989') else '21'
+              if not port:
+                  port = '21'
+          elif key_ok:
               mode = 'ssh'
               if not port:
                   port = '22'
           elif password:
               mode = 'ftp'
-              if not port:
-                  port = '21'
+              port = port or '21'
           else:
               print('::error::Nem private_key valida nem password FTP disponiveis')
               raise SystemExit(1)
 
-          # force FTP when only password and port looks like FTP
-          if password and not key_ok and port in ('21', '990', '989'):
-              mode = 'ftp'
-
-          envp = pathlib.Path(os.environ['GITHUB_ENV'])
-          with envp.open('a') as f:
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
               f.write(f'HG_HOST={host}\n')
               f.write(f'HG_PORT={port}\n')
               f.write(f'HG_USER={user}\n')
               f.write(f'HG_MODE={mode}\n')
-          if password:
-              # password via env file for lftp (GITHUB_ENV is ok for subsequent steps)
-              with envp.open('a') as f:
-                  # escape for env: no newlines
-                  safe = password.replace('\n', '').replace('\r', '')
-                  f.write(f'HG_PASS={safe}\n')
+              if password:
+                  # write password to file to avoid GITHUB_ENV special-char issues
+                  pass_file = pathlib.Path.home() / '.hg_pass'
+                  pass_file.write_text(password)
+                  pass_file.chmod(0o600)
+                  f.write(f'HG_PASS_FILE={pass_file}\n')
 
           print(f'  resolved mode={mode} host={host} port={port} user={user} key_ok={key_ok} has_pass={bool(password)}')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as o:
               o.write(f'mode={mode}\n')
           PY
 
-      # ──────────── SSH path ────────────
       - name: Setup SSH + probe
         if: steps.creds.outputs.mode == 'ssh'
         run: |
@@ -238,7 +243,6 @@ jobs:
           KEY_FILE="$HOME/.ssh/id_deploy"
           cp "$HOME/.ssh_key_resolved" "$KEY_FILE"
           chmod 600 "$KEY_FILE"
-          echo "  fingerprint: $(ssh-keygen -lf "$KEY_FILE" | awk '{print $2}')"
           {
             echo "Host deploy-target"
             echo "  HostName $HG_HOST"
@@ -261,9 +265,8 @@ jobs:
         run: |
           set -e
           scp aistore-standalone.tar.gz deploy-target:~/public_html/aistore-codebase.tar.gz
-          ssh deploy-target "bash ~/aistore-api/deploy-manual.sh || bash ~/public_html/deploy-manual.sh || bash ~/public_html/aistore/../deploy-manual.sh"
+          ssh deploy-target "bash ~/aistore-api/deploy-manual.sh || bash ~/public_html/deploy-manual.sh"
 
-      # ──────────── FTP path ────────────
       - name: Install lftp
         if: steps.creds.outputs.mode == 'ftp'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
@@ -272,84 +275,75 @@ jobs:
         if: steps.creds.outputs.mode == 'ftp'
         run: |
           set -e
+          PASS=$(cat "$HG_PASS_FILE")
           echo "FTP mode → $HG_USER@$HG_HOST:$HG_PORT"
 
-          # package hostgator helpers if present in repo
           mkdir -p /tmp/aistore-pkg
-          for f in hostgator/aistore-api.cgi hostgator/api.cgi hostgator/.htaccess hostgator/setup_aistore.sh hostgator/deploy-manual.sh deploy/aistore-api.cgi deploy/.htaccess deploy/setup_aistore.sh deploy/deploy-on-server.sh; do
-            if [ -f "$f" ]; then
-              bn=$(basename "$f")
-              cp "$f" "/tmp/aistore-pkg/$bn"
-              echo "  pack $bn"
-            fi
+          for f in hostgator/aistore-api.cgi hostgator/api.cgi hostgator/.htaccess \
+                   hostgator/setup_aistore.sh hostgator/deploy-manual.sh \
+                   deploy/aistore-api.cgi deploy/.htaccess deploy/setup_aistore.sh \
+                   deploy/deploy-on-server.sh; do
+            [ -f "$f" ] && cp "$f" "/tmp/aistore-pkg/$(basename "$f")" && echo "  pack $(basename "$f")"
           done
           cp aistore-standalone.tar.gz /tmp/aistore-codebase.tar.gz
 
-          # write lftp script (password from env, not argv)
-          cat > /tmp/lftp_deploy.txt << 'LFTP'
-          set ftp:ssl-force true
-          set ssl:verify-certificate no
-          set net:timeout 180
-          set net:max-retries 3
-          set ftp:passive-mode true
-          open -p $HG_PORT -u $HG_USER,$HG_PASS $HG_HOST
-          mkdir -p public_html/aistore
-          put /tmp/aistore-codebase.tar.gz -o public_html/aistore-codebase.tar.gz
-          LFTP
+          # Build lftp script with python (safe password quoting)
+          python3 - <<'PY'
+          import os
+          host=os.environ['HG_HOST']
+          port=os.environ['HG_PORT']
+          user=os.environ['HG_USER']
+          password=open(os.environ['HG_PASS_FILE']).read()
+          lines=[
+            'set ftp:ssl-force true',
+            'set ssl:verify-certificate no',
+            'set net:timeout 180',
+            'set net:max-retries 3',
+            'set ftp:passive-mode true',
+            f'open -p {port} -u {user},{password} {host}',
+            'mkdir -p public_html/aistore',
+            'put /tmp/aistore-codebase.tar.gz -o public_html/aistore-codebase.tar.gz',
+          ]
+          import pathlib
+          pkg=pathlib.Path('/tmp/aistore-pkg')
+          if (pkg/'aistore-api.cgi').exists():
+            lines += ['put /tmp/aistore-pkg/aistore-api.cgi -o public_html/aistore/api.cgi', 'chmod 755 public_html/aistore/api.cgi']
+          elif (pkg/'api.cgi').exists():
+            lines += ['put /tmp/aistore-pkg/api.cgi -o public_html/aistore/api.cgi', 'chmod 755 public_html/aistore/api.cgi']
+          if (pkg/'.htaccess').exists():
+            lines.append('put /tmp/aistore-pkg/.htaccess -o public_html/aistore/.htaccess')
+          if (pkg/'setup_aistore.sh').exists():
+            lines += ['put /tmp/aistore-pkg/setup_aistore.sh -o public_html/aistore/setup_aistore.sh', 'chmod 755 public_html/aistore/setup_aistore.sh']
+          if (pkg/'deploy-manual.sh').exists():
+            lines += ['put /tmp/aistore-pkg/deploy-manual.sh -o public_html/deploy-manual.sh', 'chmod 755 public_html/deploy-manual.sh']
+          if (pkg/'deploy-on-server.sh').exists():
+            lines += ['put /tmp/aistore-pkg/deploy-on-server.sh -o public_html/deploy-on-server.sh', 'chmod 755 public_html/deploy-on-server.sh']
+          lines.append('bye')
+          pathlib.Path('/tmp/lftp_run.txt').write_text('\n'.join(lines)+'\n')
+          print('lftp lines', len(lines))
+          PY
 
-          # optional helpers
-          if [ -f /tmp/aistore-pkg/aistore-api.cgi ]; then
-            echo 'put /tmp/aistore-pkg/aistore-api.cgi -o public_html/aistore/api.cgi' >> /tmp/lftp_deploy.txt
-            echo 'chmod 755 public_html/aistore/api.cgi' >> /tmp/lftp_deploy.txt
-          elif [ -f /tmp/aistore-pkg/api.cgi ]; then
-            echo 'put /tmp/aistore-pkg/api.cgi -o public_html/aistore/api.cgi' >> /tmp/lftp_deploy.txt
-            echo 'chmod 755 public_html/aistore/api.cgi' >> /tmp/lftp_deploy.txt
-          fi
-          if [ -f /tmp/aistore-pkg/.htaccess ]; then
-            echo 'put /tmp/aistore-pkg/.htaccess -o public_html/aistore/.htaccess' >> /tmp/lftp_deploy.txt
-          fi
-          if [ -f /tmp/aistore-pkg/setup_aistore.sh ]; then
-            echo 'put /tmp/aistore-pkg/setup_aistore.sh -o public_html/aistore/setup_aistore.sh' >> /tmp/lftp_deploy.txt
-            echo 'chmod 755 public_html/aistore/setup_aistore.sh' >> /tmp/lftp_deploy.txt
-          fi
-          if [ -f /tmp/aistore-pkg/deploy-manual.sh ]; then
-            echo 'put /tmp/aistore-pkg/deploy-manual.sh -o public_html/deploy-manual.sh' >> /tmp/lftp_deploy.txt
-            echo 'chmod 755 public_html/deploy-manual.sh' >> /tmp/lftp_deploy.txt
-          fi
-          if [ -f /tmp/aistore-pkg/deploy-on-server.sh ]; then
-            echo 'put /tmp/aistore-pkg/deploy-on-server.sh -o public_html/deploy-on-server.sh' >> /tmp/lftp_deploy.txt
-            echo 'chmod 755 public_html/deploy-on-server.sh' >> /tmp/lftp_deploy.txt
-          fi
-          echo 'bye' >> /tmp/lftp_deploy.txt
-
-          # expand env vars for open line
-          envsubst '$HG_HOST $HG_PORT $HG_USER $HG_PASS' < /tmp/lftp_deploy.txt > /tmp/lftp_run.txt
-          # redact password in logs of file path only
-          echo "  lftp script lines: $(wc -l < /tmp/lftp_run.txt)"
           lftp -f /tmp/lftp_run.txt
           echo "[+] FTP upload complete"
 
-      - name: Try remote extract via webhook / setup URL
+      - name: Try remote extract via webhook
         if: steps.creds.outputs.mode == 'ftp'
         continue-on-error: true
         run: |
           set +e
-          # best-effort: if a setup endpoint or webhook exists
           for url in \
-            "https://www.mybait.org/aistore/setup_aistore.sh" \
             "https://www.mybait.org/deploy-webhook.php" \
             "https://www.mybait.org/aistore/api/health"
           do
             code=$(curl -sS -o /tmp/hook.out -w "%{http_code}" --max-time 20 "$url" || echo 000)
             echo "  probe $url → $code"
           done
-          echo "::notice::FTP depositou aistore-codebase.tar.gz. Se o Node nao reiniciou sozinho, rode no cPanel Terminal:"
-          echo "::notice::  bash ~/public_html/deploy-manual.sh   # ou bash ~/aistore-api/deploy-manual.sh"
+          echo "::notice::Se o Node nao reiniciou: bash ~/public_html/deploy-manual.sh no Terminal cPanel"
 
       - name: Verify HostGator deploy
         run: |
           set -e
-          echo "Aguardando API (max 90s)..."
+          echo "Aguardando API (max 90s) mode=$HG_MODE..."
           ok=0
           for i in $(seq 1 30); do
             code=$(curl -sS -o /tmp/stats.json -w "%{http_code}" "https://www.mybait.org/aistore/api/stats" || echo "000")
@@ -357,19 +351,14 @@ jobs:
             sleep 3
           done
           if [ "$ok" != "1" ]; then
-            echo "::warning::api/stats ainda nao 200 apos upload (mode=$HG_MODE) — tarball pode precisar extract manual"
+            echo "::warning::api/stats nao 200 apos upload — extract/restart pode ser necessario no servidor"
             exit 0
           fi
-          python3 - <<'PY'
-          import json
-          s=json.load(open('/tmp/stats.json'))
-          print(f"OK total={s.get('total')} cats={len(s.get('categories') or [])}")
-          assert s.get('total',0) > 0
-          PY
+          python3 -c "import json;s=json.load(open('/tmp/stats.json'));print('OK total',s.get('total'));assert s.get('total',0)>0"
 
       - name: Summary
         if: always()
         run: |
           echo "### Deploy AI Store (${{ github.sha }})" >> $GITHUB_STEP_SUMMARY
-          echo "- mode: \`${{ steps.creds.outputs.mode }}\` (SSH key ou FTP password)" >> $GITHUB_STEP_SUMMARY
-          echo "- artefato: aistore-standalone.tar.gz → public_html/aistore-codebase.tar.gz" >> $GITHUB_STEP_SUMMARY
+          echo "- mode: \`${{ steps.creds.outputs.mode }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- tarball → public_html/aistore-codebase.tar.gz" >> $GITHUB_STEP_SUMMARY
