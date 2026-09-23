@@ -1,88 +1,114 @@
-# 🔐 Guia de Configuração de Segredos (GitHub Secrets)
+# Guia de Segredos — AI Store (GitHub Actions → HostGator)
 
-Este guia detalha os segredos necessários para o funcionamento correto do pipeline de CI/CD e da aplicação **AI Store Nexus**. A transição para segredos individuais visa aumentar a confiabilidade, facilitar a manutenção e evitar erros de parsing durante o deploy.
-
----
-
-## 📋 Lista de Segredos Necessários
-
-### 🚀 Deploy (HostGator FTP)
-
-Estes segredos são utilizados pelo GitHub Actions para enviar os arquivos compilados para o servidor.
-
-| Nome do Segredo | Descrição                | Exemplo de Valor           |
-| :-------------- | :----------------------- | :------------------------- |
-| `FTP_HOST`      | Endereço do servidor FTP | `ftp.seusite.com.br` ou IP |
-| `FTP_USER`      | Usuário da conta FTP     | `deploy@seusite.com.br`    |
-| `FTP_PASS`      | Senha da conta FTP       | `p4ssw0rd_segura`          |
-| `FTP_PORT`      | Porta do serviço FTP     | `21` (padrão)              |
-
-### 💻 Aplicação (Runtime)
-
-Estes segredos são injetados no ambiente de execução da aplicação no servidor.
-
-| Nome do Segredo  | Descrição                                  | Requisito                       |
-| :--------------- | :----------------------------------------- | :------------------------------ |
-| `SESSION_SECRET` | Chave de criptografia para sessões Next.js | Mínimo 16 caracteres aleatórios |
+Deploy de produção usa **SSH** (não FTP). O job `publish-hostgator` em
+`.github/workflows/deploy.yml` lê estes secrets.
 
 ---
 
-## 🛠️ Como Configurar
+## Secrets obrigatórios (Deploy SSH)
 
-Para adicionar ou atualizar um segredo, siga os passos abaixo:
+| Nome | Descrição | Exemplo |
+|------|-----------|---------|
+| `SSH_HOST` | Hostname ou IP do HostGator | `gatorXXXX.hostgator.com` ou IP |
+| `SSH_USER` | Usuário cPanel / SSH | `usuario` |
+| `SSH_PORT` | Porta SSH | `22` (ou a porta custom do plano) |
+| `SSH_PRIVATE_KEY` | Chave **privada** OpenSSH (PEM) | ver abaixo |
 
-1. Acesse o repositório no GitHub.
-2. Vá em **Settings** (Configurações) na barra superior.
-3. No menu lateral esquerdo, clique em **Secrets and variables** > **Actions**.
-4. Clique no botão verde **New repository secret**.
-5. Insira o **Name** (ex: `FTP_HOST`) e o **Value** correspondente.
-6. Clique em **Add secret**.
+## Secrets recomendados (app)
 
----
+| Nome | Descrição |
+|------|-----------|
+| `SESSION_SECRET` | ≥16 chars aleatórios (runtime produção no servidor) |
 
-## 🔄 O que mudou?
-
-Anteriormente, utilizávamos um segredo único chamado `CREDENCIAIS_HOSTGATOR` que continha todas as informações em um bloco de texto. Mudamos para segredos individuais pelos seguintes motivos:
-
-- **Confiabilidade:** Evita falhas no script de parsing quando o GitHub mascara partes do texto nos logs.
-- **Granularidade:** Permite atualizar apenas a senha sem risco de corromper o formato dos outros dados.
-- **Segurança:** Segredos individuais são melhor gerenciados e auditados pelo GitHub.
-
-> [!IMPORTANT]
-> O segredo antigo `CREDENCIAIS_HOSTGATOR` deve ser removido após a configuração dos novos segredos para manter o repositório limpo.
+> O workflow de CI também usa `DATABASE_URL` / `NEXT_PUBLIC_*` como env de **build**
+> (valores de build, não substituem secrets de runtime no HostGator).
 
 ---
 
-## 🔐 Segurança
+## 1. Gerar par de chaves (máquina local)
 
-- **Nunca** compartilhe seus segredos em mensagens ou arquivos de texto simples.
-- As senhas de FTP devem ter permissão restrita apenas às pastas necessárias (ex: `public_html/aistore`).
-- Recomenda-se rotacionar (trocar) as senhas periodicamente.
-
----
-
-_Nexus-AI-OS - Automação e Inteligência_
-
----
-
-## 🚀 Atualização do Workflow (`deploy.yml`)
-
-Para que o GitHub Actions utilize os novos segredos individuais, o arquivo `.github/workflows/deploy.yml` deve ser atualizado. Como este arquivo gerencia permissões sensíveis, recomendamos a seguinte alteração manual na etapa de configuração de credenciais:
-
-```yaml
-- name: Configure FTP Credentials
-  run: |
-    {
-      echo "HOST=${{ secrets.FTP_HOST }}"
-      echo "USER=${{ secrets.FTP_USER }}"
-      echo "PASS=${{ secrets.FTP_PASS }}"
-      echo "PORT=${{ secrets.FTP_PORT || '21' }}"
-    } >> "$GITHUB_ENV"
-
-    if [ -z "${{ secrets.FTP_HOST }}" ] || [ -z "${{ secrets.FTP_USER }}" ] || [ -z "${{ secrets.FTP_PASS }}" ]; then
-      echo "::error::Missing FTP secrets (FTP_HOST, FTP_USER, or FTP_PASS)"
-      exit 1
-    fi
+```bash
+ssh-keygen -t ed25519 -C "github-actions-aistore-deploy" -f ./id_aistore_deploy -N ""
 ```
 
-Esta alteração substitui o script Python de parsing antigo por uma solução mais simples e direta.
+- `id_aistore_deploy.pub` → HostGator  
+- `id_aistore_deploy` → secret `SSH_PRIVATE_KEY` no GitHub  
+
+**Nunca** commite a chave privada no repositório.
+
+---
+
+## 2. Instalar a chave pública no HostGator
+
+No servidor (Terminal cPanel, SSH ou *SSH Access*):
+
+```bash
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+touch ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+# cole UMA linha da chave pública:
+echo 'ssh-ed25519 AAAA... github-actions-aistore-deploy' >> ~/.ssh/authorized_keys
+```
+
+Confirme no cPanel → **SSH Access** que SSH está habilitado para a conta.
+
+Teste local (com a privada):
+
+```bash
+ssh -i ./id_aistore_deploy -p 22 USUARIO@HOST 'echo ok && hostname && whoami'
+```
+
+---
+
+## 3. Gravar secrets no GitHub
+
+1. Repo **AI_Store** → **Settings** → **Secrets and variables** → **Actions**
+2. **New repository secret** (ou Update) para cada nome da tabela
+3. Em `SSH_PRIVATE_KEY`, cole o arquivo **inteiro**, incluindo:
+
+```
+-----BEGIN OPENSSH PRIVATE KEY-----
+...
+-----END OPENSSH PRIVATE KEY-----
+```
+
+Alternativa mais robusta (uma linha, sem quebra de linha no UI):
+
+```bash
+base64 -w0 id_aistore_deploy | pbcopy   # macOS
+# ou: base64 -w0 id_aistore_deploy
+```
+
+Cole o base64 em `SSH_PRIVATE_KEY`. O workflow detecta e decodifica.
+
+### Formato que quebra o parse (evitar)
+
+- Aspas em volta da chave  
+- Só a linha `ssh-ed25519 AAAA...` (isso é a **pública**)  
+- CRLF / espaços no início de cada linha  
+- Chave truncada (faltando BEGIN/END)
+
+---
+
+## 4. Validar e disparar deploy
+
+```text
+Actions → Deploy AI Store to HostGator → Run workflow
+```
+
+O step **Setup SSH** deve imprimir `Setup SSH OK` e o probe `remote-ok`.
+Se aparecer `SSH_PRIVATE_KEY invalida ou corrompida`, regrave o secret
+(PEM completo ou base64).
+
+---
+
+## Mapa antigo (FTP — legado)
+
+`GUIDE_SECRETS` anterior listava `FTP_HOST` / `FTP_USER` / `FTP_PASS`.
+O `deploy.yml` atual **não** usa FTP; use a tabela SSH acima.
+Pode remover secrets FTP se não forem usados por outro workflow.
+
+---
+
+_Nexus AI-OS — AI Store_

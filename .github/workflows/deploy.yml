@@ -21,7 +21,6 @@ on:
 
 env:
   NODE_VERSION: '20.18.0'
-  # Required by Prisma during `next build` (generateStaticParams on product pages)
   DATABASE_URL: 'file:./db/custom.db'
   NEXT_PUBLIC_BASE_PATH: '/aistore'
   NEXT_PUBLIC_BASE_URL: 'https://www.mybait.org/aistore'
@@ -83,6 +82,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build]
     if: always() && (needs.build.result == 'success' || github.event.inputs.skip_tests == 'true')
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -96,13 +96,7 @@ jobs:
           body: |
             ## AI Store v1.0.0 — Automated Deploy
             **Commit:** ${{ github.sha }}
-            **Date:** ${{ github.event.head_commit.timestamp }}
             **Artifact SHA-256:** ${{ needs.build.outputs.artifact_sha }}
-
-            ### Deploy on HostGator
-            ```bash
-            bash <(curl -sL https://raw.githubusercontent.com/Nexus-HUB57/AI_Store/main/deploy/deploy-on-server.sh)
-            ```
           draft: false
           prerelease: false
         env:
@@ -125,13 +119,12 @@ jobs:
           SSH_HOST_RAW: ${{ secrets.SSH_HOST }}
           SSH_PORT_RAW: ${{ secrets.SSH_PORT }}
           SSH_USER_RAW: ${{ secrets.SSH_USER }}
-          SSH_KEY_RAW:  ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KEY_RAW: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
-          set +e
+          set -e
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          # trim aggressive de whitespace/CR/LF/aspas
           H=$(printf '%s' "$SSH_HOST_RAW" | tr -d '\r\n\t "'\''' | tr -d ' ')
           P=$(printf '%s' "$SSH_PORT_RAW" | tr -d '\r\n\t "'\''' | tr -d ' ')
           U=$(printf '%s' "$SSH_USER_RAW" | tr -d '\r\n\t "'\''' | tr -d ' ')
@@ -140,21 +133,37 @@ jobs:
           if [ -z "$U" ]; then echo "::error::SSH_USER vazio"; exit 1; fi
           [ -z "$P" ] && P=22
 
-          printf '%s\n' "$SSH_KEY_RAW" > ~/.ssh/id_deploy
-          chmod 600 ~/.ssh/id_deploy
-
-          if ! ssh-keygen -y -f ~/.ssh/id_deploy > /dev/null 2>&1; then
-              echo "::error::SSH_PRIVATE_KEY invalida ou corrompida"
-              exit 1
+          KEY_FILE="$HOME/.ssh/id_deploy"
+          # Support: (1) PEM multiline  (2) base64 one-line  (3) escaped \n
+          RAW=$(printf '%s' "$SSH_KEY_RAW" | tr -d '\r')
+          if printf '%s' "$RAW" | grep -q 'BEGIN .*PRIVATE KEY'; then
+            printf '%s\n' "$RAW" | sed 's/\\n/\n/g' > "$KEY_FILE"
+          else
+            # try base64 decode
+            if printf '%s' "$RAW" | tr -d '\n ' | base64 -d > "$KEY_FILE" 2>/dev/null \
+              && grep -q 'BEGIN .*PRIVATE KEY' "$KEY_FILE"; then
+              echo "  SSH key loaded from base64"
+            else
+              printf '%s\n' "$RAW" | sed 's/\\n/\n/g' > "$KEY_FILE"
+            fi
           fi
+          # ensure trailing newline
+          [ -n "$(tail -c1 "$KEY_FILE")" ] && echo >> "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
 
-          # ssh_config linha-a-linha (sem heredoc problematico)
+          if ! ssh-keygen -y -f "$KEY_FILE" > /dev/null 2>&1; then
+            echo "::error::SSH_PRIVATE_KEY invalida ou corrompida"
+            echo "::error::Use PEM completo (BEGIN/END) ou base64 -w0 da chave privada"
+            exit 1
+          fi
+          echo "  SSH private key OK ($(ssh-keygen -lf "$KEY_FILE" | awk '{print $2}') )"
+
           {
             echo "Host deploy-target"
             echo "  HostName $H"
             echo "  Port $P"
             echo "  User $U"
-            echo "  IdentityFile $HOME/.ssh/id_deploy"
+            echo "  IdentityFile $KEY_FILE"
             echo "  IdentitiesOnly yes"
             echo "  StrictHostKeyChecking accept-new"
             echo "  UserKnownHostsFile $HOME/.ssh/known_hosts"
@@ -167,11 +176,13 @@ jobs:
           : > ~/.ssh/known_hosts
           ssh-keyscan -T 8 -p "$P" -H "$H" >> ~/.ssh/known_hosts 2>/tmp/keyscan.err && \
               echo "  known_hosts populado ($(wc -l < ~/.ssh/known_hosts) linhas)" || \
-              { echo "::warning::ssh-keyscan best-effort falhou (accept-new no config resolve)"; cat /tmp/keyscan.err 2>/dev/null | head -3 || true; }
+              { echo "::warning::ssh-keyscan best-effort falhou"; cat /tmp/keyscan.err 2>/dev/null | head -3 || true; }
           chmod 644 ~/.ssh/known_hosts
 
-          ssh -o BatchMode=yes -o ConnectTimeout=15 deploy-target 'echo remote-ok && hostname && whoami' 2>&1 | head -5 || \
-              echo "::warning::probe SSH falhou (steps seguintes ainda vao tentar)"
+          if ! ssh -o BatchMode=yes -o ConnectTimeout=15 deploy-target 'echo remote-ok && hostname && whoami'; then
+            echo "::error::Probe SSH falhou — confira authorized_keys no HostGator e SSH_HOST/USER/PORT"
+            exit 1
+          fi
 
           echo "  Setup SSH OK — host=$H port=$P user=$U"
 
@@ -214,6 +225,5 @@ jobs:
         if: always()
         run: |
           echo "### Deploy AI Store (${{ github.sha }})" >> $GITHUB_STEP_SUMMARY
-          echo "- artefato aistore-standalone.tar.gz publicado em ~/public_html/aistore-codebase.tar.gz" >> $GITHUB_STEP_SUMMARY
-          echo "- deploy-manual.sh executado no HostGator" >> $GITHUB_STEP_SUMMARY
-          echo "- /aistore/api/stats validado (total, categorias, KPIs)" >> $GITHUB_STEP_SUMMARY
+          echo "- artefato publicado via SSH em HostGator" >> $GITHUB_STEP_SUMMARY
+          echo "- /aistore/api/stats validado" >> $GITHUB_STEP_SUMMARY
