@@ -1,4 +1,5 @@
 'use client'
+import { apiUrl } from '@/lib/utils'
 
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
@@ -44,7 +45,7 @@ export const useAuthStore = create<AuthStore>()(
             .split('; ')
             .find((row) => row.startsWith('csrf_token='))
             ?.split('=')[1] || ''
-          const res = await fetch('/api/auth/login', {
+          const res = await fetch(apiUrl('/api/auth/login'), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -75,7 +76,7 @@ export const useAuthStore = create<AuthStore>()(
           .find((row) => row.startsWith('csrf_token='))
           ?.split('=')[1] || ''
         set({ agent: null, isAuthenticated: false, isNewUser: false })
-        fetch('/api/auth/logout', {
+        fetch(apiUrl('/api/auth/logout'), {
           method: 'POST',
           headers: { 'X-CSRF-Token': csrfToken },
         }).catch(() => {})
@@ -106,7 +107,7 @@ export const useAuthStore = create<AuthStore>()(
         const current = get().agent
         if (!current) return
         try {
-          const res = await fetch(`/api/auth/me?address=${encodeURIComponent(current.address)}`)
+          const res = await fetch(apiUrl(`/api/auth/me?address=${encodeURIComponent(current.address)}`))
           const data = await res.json()
           if (data.agent) {
             set({ agent: data.agent })
