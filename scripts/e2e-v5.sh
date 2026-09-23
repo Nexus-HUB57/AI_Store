@@ -162,16 +162,16 @@ fi
 # ═══════════════════════════════════════════════════════════════════════════════
 phase_header "1" "1" "Smoke — Basic Connectivity & Health"
 
-# S1.1: Homepage
+# S1.1: Homepage (accept 200 or 308 — Next.js trailing-slash redirect)
 code=$(http_code "$BASE/")
-if [ "$code" = "200" ]; then pass "Homepage returns 200"; else fail "Homepage returns 200" "got $code"; fi
+if [ "$code" = "200" ] || [ "$code" = "308" ]; then pass "Homepage returns $code (OK)"; else fail "Homepage returns 200/308" "got $code"; fi
 
 # S1.2: /api/version
 body=$(http_get "$BASE/api/version")
 code=$(http_code "$BASE/api/version")
 if [ "$code" = "200" ]; then pass "/api/version returns 200"; else fail "/api/version returns 200" "got $code"; fi
 ver=$(json_val "['version']" "$body")
-if [ "$ver" = "1.0.0" ]; then pass "Version is 1.0.0"; else fail "Version is 1.0.0" "got $ver"; fi
+if [ "$ver" = "2.0.0" ]; then pass "Version is 2.0.0"; else fail "Version is 2.0.0" "got $ver"; fi
 
 # S1.3: /api/health
 body=$(http_get "$BASE/api/health")
