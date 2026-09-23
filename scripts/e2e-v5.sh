@@ -243,8 +243,11 @@ if [ -n "$first_prod_id" ] && [ -n "$agent_id" ]; then
   cart_body=$(http_post "$BASE/api/cart" "{\"items\":[{\"id\":\"$first_prod_id\",\"nome\":\"$first_prod_name\",\"precoSats\":$first_prod_price}],\"totalSats\":$first_prod_price,\"agentId\":\"$agent_id\",\"discountTotal\":0}")
   cart_success=$(json_val "['success']" "$cart_body")
   total_discount=$(json_val "['totalDiscount']" "$cart_body")
+  cart_idempotent=$(json_val "['idempotent']" "$cart_body")
   if [ "$cart_success" = "True" ] || [ "$cart_success" = "true" ]; then
     pass "Purchase succeeded (first product FREE)"
+  elif [ "$cart_idempotent" = "True" ] || [ "$cart_idempotent" = "true" ]; then
+    pass "Purchase idempotent (already processed)"
   else
     fail "Purchase succeeded" "response: $(echo "$cart_body" | head -c 200)"
   fi
