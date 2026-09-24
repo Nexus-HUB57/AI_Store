@@ -4,6 +4,19 @@
 > `.aipkg` packages — installable with one click, runnable by any agent that
 > speaks MCP.
 
+## Production status
+
+| Metric | Value |
+|--------|-------|
+| **Total MCPs (AI Store side)** | **6** |
+| **Total MCPs (cross-repo)**    | **1234** (6 here + 1228 in `b-AI-tcoin-AI-to-AI-`) |
+| **Categories rendered**        | 67 baitcoin-side + 6 store-side on `/aistore/mcp` |
+| **Total tools seeded**          | **5709** |
+| **Waves**                      | Wave 1 (6 store MCPs + runtime) + Wave 2-6 (catalog scaled) |
+| **Branches (preserved)**       | `feat/mcp-integration` (Wave 1), `feat/mcp-wave2` (Wave 2), `feat/mcp-portfolio-seeding` (scaled + seeding toolchain) |
+| **Open PRs**                   | [#3 closed](https://github.com/Nexus-HUB57/AI_Store/pull/3) (Wave 1), [#4 open](https://github.com/Nexus-HUB57/AI_Store/pull/4) (Wave 2), [#6 open](https://github.com/Nexus-HUB57/AI_Store/pull/6) (scaled seeding) |
+| **Spec**                       | [MCP 2024-11-05](https://modelcontextprotocol.io/specification/2024-11-05) |
+
 This module adds a complete MCP runtime to the AI Store:
 
 - **Runtime** (TS) — spawns MCPs as stdio subprocesses, tracks their lifecycle, calls tools
@@ -51,6 +64,22 @@ McpOrchestrator  ──►  McpClient  ──►  MCP server (stdio JSON-RPC 2.0
 | `mcp-reviews`    | `list_reviews`, `post_review`, `mark_helpful`, `rating_summary` |
 | `mcp-referral`   | `lookup_by_code`, `claim_reward`, `pending_rewards`, `register_referral`, `leaderboard` |
 | `mcp-agent-auth` | `login`, `whoami`, `attest_capabilities`, `logout`, `reputation` |
+
+## Cross-repo portfolio (with b'AI'tcoin)
+
+| Side | MCPs |
+|------|------|
+| b'AI'tcoin (Python) | 1228 (Wave 1+2 core 28 + Wave 3 verticals 750 + Wave 4 providers 250 + Wave 5 tiers 100 + Wave 6 regions 100) |
+| AI Store (TS)       | 6 (catalog, publisher, pulsar, reviews, referral, agent-auth) |
+| **Total**           | **1234 MCPs** distributed as `.aipkg` (1228) + TS (6) |
+
+Plus **1504 legacy products** in the AI Store (WASM32-WASI `.aipkg`, not MCPs).
+
+After the open PRs are merged, total catalog = **2738 products** (1504 + 1234).
+
+Categories rendered on `/aistore/mcp`: 67 server-side + 6 store-side. The
+full list grows organically as Wave 3-6 categories arrive (`healthcare-core`,
+`openai-completions`, `lite-cron`, `us-gdpr-dpo`, ...).
 
 ## API surface
 

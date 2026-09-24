@@ -41,6 +41,7 @@
     "scripts",
     "skills",
     "e2e",
+    "mcp/src/app",
     "playwright.config.ts"
   ]
 }

@@ -17,9 +17,7 @@
  */
 
 import { McpClient } from "../src/lib/mcp/client.ts";
-import { AipkgMcpManifest } from "../src/lib/mcp/types.ts";
-
-const manifest: AipkgMcpManifest = {
+const manifest = {
   aipkg: "1.0",
   kind: "mcp",
   name: "mcp-catalog",
@@ -31,7 +29,7 @@ const manifest: AipkgMcpManifest = {
   mcp: {
     transport: "stdio",
     command: "bun",
-    args: ["run", "src/servers/catalog/server.ts"],
+    args: ["run", "mcp/src/servers/catalog/server.ts"],
     capabilities: { tools: true, resources: true, prompts: false, logging: true, sampling: false },
     minProtocolVersion: "2024-11-05",
   },
@@ -42,6 +40,7 @@ async function main() {
   const client = new McpClient({
     command: manifest.mcp.command,
     args: manifest.mcp.args,
+    env: { DATABASE_URL: process.env.DATABASE_URL ?? `file:${process.cwd()}/db/custom.db` },
     clientInfo: { name: "e2e-test", version: "1.0.0" },
   });
 
@@ -59,7 +58,7 @@ async function main() {
   console.log("▶ tools/call search_products...");
   const r1 = await client.callTool("search_products", { limit: 5, segmento: "Agent Apps" });
   console.log(`  ✓ result isError=${r1.isError} contentLen=${JSON.stringify(r1.content).length}`);
-  if (r1.isError) throw new Error("search_products failed");
+  if (r1.isError) throw new Error(`search_products failed: ${JSON.stringify(r1.content)}`);
 
   console.log("▶ tools/call list_categories...");
   const r2 = await client.callTool("list_categories", {});

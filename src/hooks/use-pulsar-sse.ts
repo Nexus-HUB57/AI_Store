@@ -1,4 +1,5 @@
 'use client'
+import { apiUrl } from '@/lib/utils'
 
 import { useEffect, useRef, useCallback } from 'react'
 import { usePulsarStore } from '@/lib/pulsar-store'
@@ -30,7 +31,7 @@ export function usePulsarSSE() {
       eventSourceRef.current.close()
     }
 
-    const es = new EventSource('/api/pulsar')
+    const es = new EventSource(apiUrl('/api/pulsar'))
     eventSourceRef.current = es
 
     es.onopen = () => {

@@ -114,7 +114,7 @@ export class McpServer {
   // ------------------------------------------------------- I/O layer
   /** Start a stdio MCP server reading from stdin, writing to stdout. */
   async startStdio(): Promise<void> {
-    process.stdin.on("data", (chunk) => this.onData(chunk));
+    process.stdin.on("data", (chunk) => this.onData(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
     process.stdin.on("end", () => process.exit(0));
     this.log("info", `${this.impl.name} v${this.impl.version} ready (stdio)`);
     // We don't need to spawn — we ARE the server.
@@ -348,8 +348,8 @@ function zodFieldToJson(v: ZodTypeAny): any {
   if (v instanceof z.ZodNumber) return { type: "number", description: v.description };
   if (v instanceof z.ZodBoolean) return { type: "boolean", description: v.description };
   if (v instanceof z.ZodEnum) return { type: "string", enum: v.options, description: v.description };
-  if (v instanceof z.ZodArray) return { type: "array", items: zodFieldToJson(v._def.type as ZodTypeAny), description: v.description };
-  if (v instanceof z.ZodOptional) return zodFieldToJson(v._def.innerType as ZodTypeAny);
+  if (v instanceof z.ZodArray) return { type: "array", items: zodFieldToJson(v._def.type as unknown as ZodTypeAny), description: v.description };
+  if (v instanceof z.ZodOptional) return zodFieldToJson(v._def.innerType as unknown as ZodTypeAny);
   if (v instanceof z.ZodObject) return zodToJsonSchema(v);
   return { type: "string", description: v.description };
 }

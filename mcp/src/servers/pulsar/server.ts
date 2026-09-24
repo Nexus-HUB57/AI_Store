@@ -14,7 +14,6 @@
 
 import { z } from "zod";
 import { McpServer } from "../../lib/mcp/server";
-import { EventSource } from "undici";
 
 const PULSAR_URL = process.env.PULSAR_URL ?? "http://localhost:3000/api/pulsar";
 

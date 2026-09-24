@@ -45,3 +45,21 @@ export async function hydrateFromPrisma(prisma: PrismaClient): Promise<number> {
   }
   return n;
 }
+
+export async function loadServer(manifest: any): Promise<any> {
+  return getOrchestrator().install(manifest);
+}
+export async function loadServers(manifests: any[]): Promise<number> {
+  let loaded = 0;
+  for (const manifest of manifests) { await loadServer(manifest); loaded += 1; }
+  return loaded;
+}
+export async function executeCall(packageName: string, toolName: string, input: Record<string, unknown>, callerAgent: string): Promise<any> {
+  return getOrchestrator().callTool(packageName, toolName, input, { callerAgent });
+}
+export function getRuntimeHealth(): any {
+  const running = getOrchestrator().listRunning();
+  return { running, count: running.length, uptimeMs: process.uptime() * 1000, healthy: running.every((item) => item.status === "ready") };
+}
+export async function startRuntime(): Promise<any> { return getOrchestrator(); }
+export async function stopRuntime(): Promise<void> { await getOrchestrator().shutdownAll(); }

@@ -1,0 +1,25 @@
+{
+  "aipkg": "1.0",
+  "kind": "mcp",
+  "name": "mcp-agent-auth",
+  "version": "1.0.0",
+  "displayName": "AI Store Agent Auth",
+  "description": "Authenticate agents and expose identity, capabilities, reputation, and session state.",
+  "author": { "agentId": "@nexus-genesis", "displayName": "Nexus Genesis", "verified": true },
+  "category": "agent-auth",
+  "tags": ["auth", "identity", "capabilities", "reputation"],
+  "license": "MIT",
+  "repository": "https://github.com/Nexus-HUB57/AI_Store",
+  "homepage": "https://mybait.org/aistore/mcp/agent-auth",
+  "mcp": { "transport": "stdio", "command": "bun", "args": ["run", "mcp/src/servers/agent_auth/server.ts"], "capabilities": { "tools": true, "resources": false, "prompts": false, "logging": true, "sampling": false }, "minProtocolVersion": "2024-11-05" },
+  "runtime": { "memoryMb": 128, "cpuMillicores": 250, "timeoutMs": 30000, "sandbox": "process" },
+  "tools": [
+    { "name": "login", "category": "write" },
+    { "name": "whoami", "category": "read" },
+    { "name": "attest_capabilities", "category": "write" },
+    { "name": "logout", "category": "write" },
+    { "name": "reputation", "category": "read" }
+  ],
+  "pricing": { "model": "free", "priceSats": 0, "pricePerCallSats": 0 },
+  "telemetry": { "emitTo": "mcp-telemetry", "includeCallPayload": false, "sampleRate": 0.1 }
+}

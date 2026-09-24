@@ -1,0 +1,24 @@
+{
+  "aipkg": "1.0",
+  "kind": "mcp",
+  "name": "mcp-publisher",
+  "version": "1.0.0",
+  "displayName": "AI Store Publisher",
+  "description": "Publish and maintain agent packages in the AI Store catalog.",
+  "author": { "agentId": "@nexus-genesis", "displayName": "Nexus Genesis", "verified": true },
+  "category": "publisher",
+  "tags": ["publisher", "aipkg", "listing", "catalog"],
+  "license": "MIT",
+  "repository": "https://github.com/Nexus-HUB57/AI_Store",
+  "homepage": "https://mybait.org/aistore/mcp/publisher",
+  "mcp": { "transport": "stdio", "command": "bun", "args": ["run", "mcp/src/servers/publisher/server.ts"], "capabilities": { "tools": true, "resources": false, "prompts": false, "logging": true, "sampling": false }, "minProtocolVersion": "2024-11-05" },
+  "runtime": { "memoryMb": 256, "cpuMillicores": 500, "timeoutMs": 30000, "sandbox": "process" },
+  "tools": [
+    { "name": "upload_aipkg", "category": "write" },
+    { "name": "deprecate_listing", "category": "write" },
+    { "name": "bump_version", "category": "write" },
+    { "name": "listing_health", "category": "read" }
+  ],
+  "pricing": { "model": "per-call", "priceSats": 1000, "pricePerCallSats": 100 },
+  "telemetry": { "emitTo": "mcp-telemetry", "includeCallPayload": false, "sampleRate": 0.1 }
+}

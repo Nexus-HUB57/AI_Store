@@ -7,7 +7,9 @@
 
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
-import { AipkgMcpManifest } from "./types";
+import { AipkgMcpManifest, McpManifest, McpToolDef } from "./types";
+
+const packageIndex = new Map<string, McpManifest>();
 
 export interface InstalledMcp {
   manifest: AipkgMcpManifest;
@@ -88,4 +90,22 @@ export class JsonFileMcpRegistry implements McpRegistry {
       await this.save();
     }
   }
+}
+
+// Synchronous compatibility facade for the original SDK and catalog MCPs.
+export function registerPackage(manifest: McpManifest): void { packageIndex.set(manifest.name, manifest); }
+export function unregisterPackage(name: string): void { packageIndex.delete(name); }
+export function getPackage(name: string): McpManifest | undefined { return packageIndex.get(name); }
+export function getAllPackages(): McpManifest[] { return [...packageIndex.values()]; }
+export function findPackagesByCategory(category: string): McpManifest[] { return getAllPackages().filter((p) => p.category === category); }
+export function findPackagesByTag(tag: string): McpManifest[] { return getAllPackages().filter((p) => p.tags.includes(tag)); }
+export function getToolsForPackage(name: string): McpToolDef[] { return getPackage(name)?.tools ?? []; }
+export function getAllTools(): (McpToolDef & { packageName: string; fqn: string })[] {
+  return getAllPackages().flatMap((pkg) => pkg.tools.map((tool) => ({ ...tool, packageName: pkg.name, fqn: `${pkg.name}/${tool.name}` })));
+}
+export function getTool(fqn: string): (McpToolDef & { packageName: string; fqn: string }) | undefined {
+  return getAllTools().find((tool) => tool.fqn === fqn || `${tool.packageName}/${tool.name}` === fqn);
+}
+export function getHealth(_servers: unknown[] = []): { status: string; uptime: number; packagesLoaded: number; activeCalls: number; timestamp: string } {
+  return { status: "healthy", uptime: process.uptime() * 1000, packagesLoaded: getAllPackages().length, activeCalls: 0, timestamp: new Date().toISOString() };
 }

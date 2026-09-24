@@ -10,6 +10,7 @@ import {
 
 // ─── Category mapping: AI Store segmento → daemon category ───
 const SEGMENT_TO_DAEMON_CATEGORY: Record<string, string> = {
+  MCP_PROTOCOL_SERVERS: 'ml_inference',
   SYNTHETIC_INFRASTRUCTURE: 'ml_inference',
   AGENT_APPS: 'smart_contract',
   IN_APP_PRODUCTS: 'data_processing',
@@ -44,6 +45,7 @@ export async function GET(req: NextRequest) {
     // ─── Source routing: 'daemon' forces daemon, 'local' forces local DB ───
     // Default: try daemon first, fall back to local DB
     const useDaemon = source === 'daemon' || (!source && !featured)
+    // 'source' is a routing directive, not a DB column filter — exclude it from `where`
 
     if (useDaemon) {
       try {
@@ -62,20 +64,25 @@ export async function GET(req: NextRequest) {
         // Map daemon products to AI Store product format
         const products = result.products.map(mapDaemonProductToStore)
 
-        if (search) trackSearch(search, result.pagination.total)
+        // If daemon returns 0 products, fall through to local DB
+        if (result.pagination.total === 0) {
+          // Fall through to local DB below
+        } else {
+          if (search) trackSearch(search, result.pagination.total)
 
-        return NextResponse.json({
-          products,
-          pagination: {
-            page: result.pagination.page,
-            limit: result.pagination.limit,
-            total: result.pagination.total,
-            totalPages: result.pagination.total_pages,
-          },
-          source: 'daemon',
-          daemonCategories: result.categories,
-          totalDaemonProducts: result.pagination.total,
-        })
+          return NextResponse.json({
+            products,
+            pagination: {
+              page: result.pagination.page,
+              limit: result.pagination.limit,
+              total: result.pagination.total,
+              totalPages: result.pagination.total_pages,
+            },
+            source: 'daemon',
+            daemonCategories: result.categories,
+            totalDaemonProducts: result.pagination.total,
+          })
+        }
       } catch (daemonError) {
         console.warn('[products] Daemon unavailable, falling back to local DB:', daemonError)
         // Fall through to local DB
@@ -102,9 +109,9 @@ export async function GET(req: NextRequest) {
       where.featured = true
     }
 
-    if (source) {
-      where.source = source
-    }
+    // NOTE: do NOT filter by `source` column — `source` param is a routing
+    // directive ('local' = use local DB, 'daemon' = use daemon marketplace),
+    // not a product attribute filter.
 
     const orderBy: Record<string, string> = {}
     if (sort === 'pulsarEnergy' || sort === 'pulsar') orderBy.pulsarEnergy = 'desc'
