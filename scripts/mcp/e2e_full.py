@@ -215,13 +215,10 @@ def section_ai_store_code(ai_store: Path) -> bool:
         # MCP
         "src/app/api/mcp/route.ts",
         "src/app/api/mcp/health/route.ts",
-        "src/app/api/mcp/[slug]/route.ts",
         "src/app/api/mcp/[name]/route.ts",
         "src/app/api/mcp/[name]/tools/route.ts",
         "src/app/api/mcp/[name]/call/route.ts",
         "src/app/api/mcp/[name]/install/route.ts",
-        "src/app/api/mcp/[slug]/acquire/route.ts",
-        "src/app/api/mcp/[slug]/call/route.ts",
         "src/app/api/mcp/acquire/route.ts",
         # Compatibility aliases (added 2026-09-25)
         "src/app/api/transactions/route.ts",
