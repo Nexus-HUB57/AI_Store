@@ -45,6 +45,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ total: items.length, items })
   } catch (error) {
+    // eslint-disable-next-line no-console
     console.error('[/api/reputation GET]', error)
     return NextResponse.json({ error: 'Failed to list reputation' }, { status: 500 })
   }

@@ -39,6 +39,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ total: items.length, items })
   } catch (error) {
+    // eslint-disable-next-line no-console
     console.error('[/api/agents GET]', error)
     return NextResponse.json({ error: 'Failed to list agents' }, { status: 500 })
   }

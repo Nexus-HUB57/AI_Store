@@ -44,6 +44,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ items, total, limit, offset })
   } catch (error) {
+    // eslint-disable-next-line no-console
     console.error('[/api/transactions GET]', error)
     return NextResponse.json({ error: 'Failed to list transactions' }, { status: 500 })
   }
