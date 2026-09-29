@@ -1,34 +1,36 @@
 'use client'
 
 /**
- * Client-side polyfill: when the app is deployed under NEXT_PUBLIC_BASE_PATH
- * (e.g. /aistore), absolute /api/* fetches and EventSource connections would
- * otherwise hit the domain root and 404. This patch prefixes them once on load.
- *
- * Safe to keep even after individual call sites use apiUrl() — double-prefix
- * is avoided by checking the path.
+ * Client-side polyfill for NEXT_PUBLIC_BASE_PATH deploys (e.g. /aistore).
+ * Absolute /api/* and EventSource URLs must be prefixed or they 404 on domain root
+ * and the error boundary shows "Erro Inesperado".
  */
 import { useEffect } from 'react'
 
-const BASE =
-  (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_BASE_PATH) ||
-  '/aistore'
-
-function normalizeBase(b: string): string {
-  if (!b || b === '/') return ''
-  return b.endsWith('/') ? b.slice(0, -1) : b
+function resolveBase(): string {
+  const fromEnv =
+    typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_BASE_PATH : undefined
+  if (fromEnv && fromEnv !== '/') {
+    return fromEnv.endsWith('/') ? fromEnv.slice(0, -1) : fromEnv
+  }
+  if (typeof window !== 'undefined') {
+    const path = window.location.pathname || ''
+    for (const root of ['/aistore', '/aistore-staging']) {
+      if (path === root || path.startsWith(root + '/')) return root
+    }
+  }
+  return '/aistore'
 }
 
-function withBase(input: string): string {
-  const base = normalizeBase(BASE)
+function withBase(input: string, base: string): string {
   if (!base) return input
   if (!input.startsWith('/')) return input
   if (input === base || input.startsWith(base + '/')) return input
-  // Only rewrite app API + known internal absolute paths
   if (
     input.startsWith('/api/') ||
     input === '/api' ||
-    input.startsWith('/_next/')
+    input.startsWith('/_next/') ||
+    input === '/manifest.webmanifest'
   ) {
     return base + input
   }
@@ -40,23 +42,24 @@ let patched = false
 function patchGlobals() {
   if (patched || typeof window === 'undefined') return
   patched = true
+  const base = resolveBase()
 
   const origFetch = window.fetch.bind(window)
   window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
     if (typeof input === 'string') {
-      return origFetch(withBase(input), init)
+      return origFetch(withBase(input, base), init)
     }
     if (input instanceof URL) {
-      const path = input.pathname + input.search + input.hash
       if (input.origin === window.location.origin) {
-        return origFetch(withBase(path), init)
+        const path = input.pathname + input.search + input.hash
+        return origFetch(withBase(path, base), init)
       }
     }
     if (typeof Request !== 'undefined' && input instanceof Request) {
       try {
         const u = new URL(input.url, window.location.origin)
         if (u.origin === window.location.origin) {
-          const newUrl = withBase(u.pathname + u.search + u.hash)
+          const newUrl = withBase(u.pathname + u.search + u.hash, base)
           return origFetch(new Request(newUrl, input), init)
         }
       } catch {
@@ -72,7 +75,11 @@ function patchGlobals() {
     url: string | URL,
     eventSourceInitDict?: EventSourceInit,
   ) {
-    const s = typeof url === 'string' ? withBase(url) : url
+    let s: string | URL = url
+    if (typeof url === 'string') s = withBase(url, base)
+    else if (url instanceof URL && url.origin === window.location.origin) {
+      s = withBase(url.pathname + url.search + url.hash, base)
+    }
     return new OrigES(s as string, eventSourceInitDict)
   }
   window.EventSource.prototype = OrigES.prototype
@@ -88,7 +95,6 @@ export function BasePathPatch() {
   return null
 }
 
-// Run as early as possible if this module is evaluated on the client
 if (typeof window !== 'undefined') {
   patchGlobals()
 }
