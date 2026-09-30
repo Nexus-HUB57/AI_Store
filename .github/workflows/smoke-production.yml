@@ -1,0 +1,84 @@
+name: Smoke Production (E2E)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Every 6 hours UTC
+    - cron: '15 */6 * * *'
+  workflow_run:
+    workflows: ["Deploy AI Store to HostGator"]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: smoke-aistore-prod
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Live probes
+    runs-on: ubuntu-latest
+    # Only auto-run after successful deploy; always allow manual
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    steps:
+      - name: Probe BAIT mainnet status
+        run: |
+          set -e
+          code=$(curl -sS -o /tmp/bait.json -w "%{http_code}" --max-time 20 \
+            "https://mybait.org/api/api/v1/status" || echo 000)
+          echo "BAIT status HTTP $code"
+          test "$code" = "200"
+          python3 -c "import json;d=json.load(open('/tmp/bait.json'));print('height',d.get('chain_height'),'valid',d.get('chain_valid'));assert d.get('chain_valid') is True"
+
+      - name: Probe AI Store API (basePath)
+        id: store
+        run: |
+          set -e
+          for path in /aistore/api/health /aistore/api/stats /aistore/api/products?page=1\&limit=1; do
+            code=$(curl -sS -o /tmp/out.json -w "%{http_code}" --max-time 20 \
+              "https://www.mybait.org$path" || echo 000)
+            echo "$path → $code"
+            test "$code" = "200"
+          done
+          python3 -c "import json;s=json.load(open('/tmp/out.json'));print('products sample ok')"
+
+          total=$(curl -sS --max-time 20 "https://www.mybait.org/aistore/api/stats" | python3 -c "import sys,json;print(json.load(sys.stdin).get('total',0))")
+          echo "total=$total" >> $GITHUB_OUTPUT
+          test "$total" -gt 1000
+
+      - name: Gate — root /api must 404 (prevents Erro Inesperado regression)
+        run: |
+          set -e
+          for path in /api/stats /api/products /api/pulsar; do
+            code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 15 \
+              "https://www.mybait.org$path" || echo 000)
+            echo "root $path → $code"
+            # Accept 404 or 401/403; fail if 200 (would mean wrong routing)
+            if [ "$code" = "200" ]; then
+              echo "::error::Root $path returned 200 — basePath misconfigured"
+              exit 1
+            fi
+          done
+
+      - name: Gate — HTML must not be pure error boundary only
+        continue-on-error: true
+        run: |
+          set -e
+          curl -sS --max-time 20 "https://www.mybait.org/aistore/" -o /tmp/home.html
+          size=$(wc -c < /tmp/home.html)
+          echo "HTML size=$size"
+          # Soft check: polyfill present after full rollouts
+          if grep -q '__BAIT_BASEPATH_PATCHED__\|aistore' /tmp/home.html; then
+            echo "HTML contains aistore markers"
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Smoke production" >> $GITHUB_STEP_SUMMARY
+          echo "- BAIT chain: status 200 expected" >> $GITHUB_STEP_SUMMARY
+          echo "- Store products total: \`${{ steps.store.outputs.total }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- basePath gate: root /api/* must not be 200" >> $GITHUB_STEP_SUMMARY

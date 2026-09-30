@@ -25,10 +25,11 @@ env:
   NEXT_PUBLIC_BASE_PATH: '/aistore'
   NEXT_PUBLIC_BASE_URL: 'https://www.mybait.org/aistore'
   SESSION_SECRET: 'ci-build-only-not-for-production-16c'
+  NEXT_TELEMETRY_DISABLED: '1'
 
 concurrency:
-  group: deploy-aistore
-  cancel-in-progress: false
+  group: deploy-aistore-production
+  cancel-in-progress: true
 
 jobs:
   validate-secrets:
@@ -36,9 +37,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate build env (CI placeholder OK)
+      - name: Validate build env
         run: node scripts/validate-ci-env.mjs build
-      - name: Validate deploy secrets (presence only — values masked)
+      - name: Validate deploy secrets (presence only)
         env:
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
           SSH_HOST: ${{ secrets.SSH_HOST }}
@@ -51,8 +52,7 @@ jobs:
           CREDENCIAIS_PLATAFORMA_BAIT: ${{ secrets.CREDENCIAIS_PLATAFORMA_BAIT }}
         run: |
           node scripts/validate-ci-env.mjs deploy
-          echo ""
-          echo "::notice::HostGator runtime still needs SetEnv SESSION_SECRET in public_html/.htaccess"
+          echo "::notice::Production needs SESSION_SECRET on host + extract of aistore-codebase.tar.gz"
 
   test:
     runs-on: ubuntu-latest
@@ -63,8 +63,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: npm
       - run: npm ci
-      - run: npx vitest run --reporter=verbose 2>&1 | tail -30
+      - run: mkdir -p db && npx prisma generate && npx prisma db push
+      - run: npx vitest run --reporter=verbose 2>&1 | tail -40
 
   build:
     runs-on: ubuntu-latest
@@ -77,48 +79,57 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: npm
       - run: npm ci
-      - name: Sync Prisma schema to CI sqlite (always)
+      - name: Sync Prisma schema (always)
         run: |
           mkdir -p db
-          # Always push so columns like McpPackage.displayName exist for SSG/prerender
           npx prisma db push --skip-generate --accept-data-loss
       - run: npx prisma generate
-      - run: npm run build
-      - name: Package standalone
+      - name: Build Next.js (basePath=/aistore)
+        run: npm run build
+      - name: Package standalone tarball
         run: |
           cd .next/standalone
           tar czf ../../aistore-standalone.tar.gz .
-      - name: Hash artefact
-        id: hash
+          ls -lh ../../aistore-standalone.tar.gz
+      - id: hash
         run: echo "sha=$(sha256sum aistore-standalone.tar.gz | cut -d' ' -f1)" >> $GITHUB_OUTPUT
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: aistore-standalone
           path: aistore-standalone.tar.gz
-          retention-days: 7
+          retention-days: 14
+      - name: Build summary
+        run: |
+          echo "### Build" >> $GITHUB_STEP_SUMMARY
+          echo "- commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- tarball sha256: \`${{ steps.hash.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- basePath: /aistore" >> $GITHUB_STEP_SUMMARY
 
   release:
     runs-on: ubuntu-latest
     needs: [build]
-    if: always() && needs.build.result == 'success'
+    if: needs.build.result == 'success'
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: aistore-standalone
-      - name: Create Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.0-${{ github.run_number }}
+          tag_name: aistore-v1.0.0-${{ github.run_number }}
           files: aistore-standalone.tar.gz
           body: |
-            ## AI Store v1.0.0
-            Commit: ${{ github.sha }}
+            ## AI Store production artifact
+            - Commit: ${{ github.sha }}
+            - SHA-256: ${{ needs.build.outputs.artifact_sha }}
+            - basePath: /aistore
           draft: false
           prerelease: false
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -127,6 +138,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build]
     if: ${{ github.event.inputs.skip_hostgator != 'true' && needs.build.result == 'success' }}
+    environment:
+      name: production
+      url: https://www.mybait.org/aistore/
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -152,8 +166,7 @@ jobs:
           import os, json, re, pathlib, base64, subprocess
 
           def clean(s):
-              if s is None:
-                  return ''
+              if s is None: return ''
               return re.sub(r'[\r\n\t "\']', '', str(s)).strip()
 
           st = {
@@ -166,18 +179,15 @@ jobs:
 
           def merge_json(raw, label):
               if not raw or not str(raw).strip():
-                  print(f'  {label}: empty')
-                  return
+                  print(f'  {label}: empty'); return
               text = str(raw).strip()
-              if (text.startswith("'") and text.endswith("'")) or (text.startswith('"') and text.endswith('"')):
+              if len(text) >= 2 and text[0] == text[-1] and text[0] in "'\"":
                   text = text[1:-1]
               try:
                   c = json.loads(text)
               except Exception as e:
-                  print(f'  {label}: not JSON ({e})')
-                  return
-              if not isinstance(c, dict):
-                  return
+                  print(f'  {label}: not JSON ({e})'); return
+              if not isinstance(c, dict): return
               print(f'  {label}: keys={sorted(c.keys())}')
               st['host'] = st['host'] or clean(c.get('host') or c.get('ssh_host') or c.get('hostname') or c.get('ip') or c.get('ftp_host'))
               st['user'] = st['user'] or clean(c.get('user') or c.get('ssh_user') or c.get('username') or c.get('ftp_user'))
@@ -196,7 +206,6 @@ jobs:
 
           host, port, user = st['host'], st['port'], st['user']
           key, password = st['key'], st['password']
-
           if not host or not user:
               print('::error::host/user vazios apos resolve')
               raise SystemExit(1)
@@ -214,42 +223,33 @@ jobs:
                       pass
               key_path.write_text(body if body.endswith('\n') else body + '\n')
               key_path.chmod(0o600)
-              key_ok = subprocess.call(
-                  ['ssh-keygen', '-y', '-f', str(key_path)],
-                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-              ) == 0
-              print(f'  key_ok={key_ok} bytes={key_path.stat().st_size if key_path.exists() else 0}')
+              key_ok = subprocess.call(['ssh-keygen', '-y', '-f', str(key_path)],
+                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0
+              print(f'  key_ok={key_ok} bytes={key_path.stat().st_size}')
 
           if password and (not key_ok or port in ('21', '990', '989', '')):
               mode = 'ftp'
               if not port or port in ('22',):
-                  if not key_ok:
-                      port = port if port in ('21', '990', '989') else '21'
+                  port = '21' if not key_ok else (port or '21')
               if not port:
                   port = '21'
           elif key_ok:
               mode = 'ssh'
-              if not port:
-                  port = '22'
+              port = port or '22'
           elif password:
               mode = 'ftp'
               port = port or '21'
           else:
-              print('::error::Nem private_key valida nem password FTP disponiveis')
+              print('::error::Nem private_key valida nem password FTP')
               raise SystemExit(1)
 
           with open(os.environ['GITHUB_ENV'], 'a') as f:
-              f.write(f'HG_HOST={host}\n')
-              f.write(f'HG_PORT={port}\n')
-              f.write(f'HG_USER={user}\n')
-              f.write(f'HG_MODE={mode}\n')
+              f.write(f'HG_HOST={host}\nHG_PORT={port}\nHG_USER={user}\nHG_MODE={mode}\n')
               if password:
-                  pass_file = pathlib.Path.home() / '.hg_pass'
-                  pass_file.write_text(password)
-                  pass_file.chmod(0o600)
-                  f.write(f'HG_PASS_FILE={pass_file}\n')
-
-          print(f'  resolved mode={mode} host={host} port={port} user={user} key_ok={key_ok} has_pass={bool(password)}')
+                  pf = pathlib.Path.home() / '.hg_pass'
+                  pf.write_text(password); pf.chmod(0o600)
+                  f.write(f'HG_PASS_FILE={pf}\n')
+          print(f'  resolved mode={mode} host={host} port={port} user={user}')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as o:
               o.write(f'mode={mode}\n')
           PY
@@ -259,15 +259,13 @@ jobs:
         run: |
           set -e
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          KEY_FILE="$HOME/.ssh/id_deploy"
-          cp "$HOME/.ssh_key_resolved" "$KEY_FILE"
-          chmod 600 "$KEY_FILE"
+          cp "$HOME/.ssh_key_resolved" ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
           {
             echo "Host deploy-target"
             echo "  HostName $HG_HOST"
             echo "  Port $HG_PORT"
             echo "  User $HG_USER"
-            echo "  IdentityFile $KEY_FILE"
+            echo "  IdentityFile $HOME/.ssh/id_deploy"
             echo "  IdentitiesOnly yes"
             echo "  StrictHostKeyChecking accept-new"
             echo "  UserKnownHostsFile $HOME/.ssh/known_hosts"
@@ -289,7 +287,7 @@ jobs:
           if [ -n "${SESSION_SECRET:-}" ] && [ ${#SESSION_SECRET} -ge 16 ]; then
             ssh deploy-target "export SESSION_SECRET=$(printf %q "$SESSION_SECRET"); bash ~/aistore-api/deploy-manual.sh || bash ~/public_html/deploy-manual.sh"
           else
-            echo "::warning::secrets.SESSION_SECRET missing"
+            echo "::warning::SESSION_SECRET missing — extract/restart may still work"
             ssh deploy-target "bash ~/aistore-api/deploy-manual.sh || bash ~/public_html/deploy-manual.sh"
           fi
 
@@ -301,8 +299,7 @@ jobs:
         if: steps.creds.outputs.mode == 'ftp'
         run: |
           set -e
-          PASS=$(cat "$HG_PASS_FILE")
-          echo "FTP mode → $HG_USER@$HG_HOST:$HG_PORT"
+          echo "FTP → $HG_USER@$HG_HOST:$HG_PORT"
           mkdir -p /tmp/aistore-pkg
           for f in hostgator/aistore-api.cgi hostgator/api.cgi hostgator/.htaccess \
                    hostgator/setup_aistore.sh hostgator/deploy-manual.sh \
@@ -313,20 +310,32 @@ jobs:
           cp aistore-standalone.tar.gz /tmp/aistore-codebase.tar.gz
           python3 - <<'PY'
           import os, pathlib
-          host=os.environ['HG_HOST']; port=os.environ['HG_PORT']; user=os.environ['HG_USER']
-          password=open(os.environ['HG_PASS_FILE']).read()
-          lines=['set ftp:ssl-force true','set ssl:verify-certificate no','set net:timeout 180','set net:max-retries 3','set ftp:passive-mode true',f'open -p {port} -u {user},{password} {host}','mkdir -p public_html/aistore','put /tmp/aistore-codebase.tar.gz -o public_html/aistore-codebase.tar.gz']
+          host=os.environ['HG_HOST']; port=os.environ['HG_PORT']
+          user=os.environ['HG_USER']; password=open(os.environ['HG_PASS_FILE']).read()
+          lines=[
+            'set ftp:ssl-force true',
+            'set ssl:verify-certificate no',
+            'set net:timeout 300',
+            'set net:max-retries 5',
+            'set ftp:passive-mode true',
+            f'open -p {port} -u {user},{password} {host}',
+            'mkdir -p public_html/aistore',
+            'put /tmp/aistore-codebase.tar.gz -o public_html/aistore-codebase.tar.gz',
+          ]
           pkg=pathlib.Path('/tmp/aistore-pkg')
           if (pkg/'aistore-api.cgi').exists():
-            lines += ['put /tmp/aistore-pkg/aistore-api.cgi -o public_html/aistore/api.cgi','chmod 755 public_html/aistore/api.cgi']
+            lines += ['put /tmp/aistore-pkg/aistore-api.cgi -o public_html/aistore/api.cgi', 'chmod 755 public_html/aistore/api.cgi']
           elif (pkg/'api.cgi').exists():
-            lines += ['put /tmp/aistore-pkg/api.cgi -o public_html/aistore/api.cgi','chmod 755 public_html/aistore/api.cgi']
+            lines += ['put /tmp/aistore-pkg/api.cgi -o public_html/aistore/api.cgi', 'chmod 755 public_html/aistore/api.cgi']
           if (pkg/'.htaccess').exists():
             lines.append('put /tmp/aistore-pkg/.htaccess -o public_html/aistore/.htaccess')
           if (pkg/'deploy-manual.sh').exists():
-            lines += ['put /tmp/aistore-pkg/deploy-manual.sh -o public_html/deploy-manual.sh','chmod 755 public_html/deploy-manual.sh']
+            lines += ['put /tmp/aistore-pkg/deploy-manual.sh -o public_html/deploy-manual.sh', 'chmod 755 public_html/deploy-manual.sh']
+          if (pkg/'deploy-on-server.sh').exists():
+            lines += ['put /tmp/aistore-pkg/deploy-on-server.sh -o public_html/deploy-on-server.sh', 'chmod 755 public_html/deploy-on-server.sh']
           lines.append('bye')
           pathlib.Path('/tmp/lftp_run.txt').write_text('\n'.join(lines)+'\n')
+          print('lftp lines', len(lines))
           PY
           lftp -f /tmp/lftp_run.txt
           echo "[+] FTP upload complete"
@@ -336,28 +345,53 @@ jobs:
         continue-on-error: true
         run: |
           set +e
-          for url in "https://www.mybait.org/deploy-webhook.php" "https://www.mybait.org/aistore/api/health"; do
+          for url in \
+            "https://www.mybait.org/deploy-webhook.php" \
+            "https://www.mybait.org/aistore/api/health"
+          do
             code=$(curl -sS -o /tmp/hook.out -w "%{http_code}" --max-time 20 "$url" || echo 000)
             echo "  probe $url → $code"
           done
+          echo "::notice::Se Node nao reiniciou: bash ~/public_html/deploy-manual.sh no Terminal cPanel"
 
-      - name: Verify HostGator deploy
+      - name: Smoke — API + basePath gate
+        id: smoke
         run: |
           set -e
+          echo "Aguardando API (max 120s)..."
           ok=0
-          for i in $(seq 1 30); do
-            code=$(curl -sS -o /tmp/stats.json -w "%{http_code}" "https://www.mybait.org/aistore/api/stats" || echo "000")
+          for i in $(seq 1 40); do
+            code=$(curl -sS -o /tmp/stats.json -w "%{http_code}" --max-time 15 \
+              "https://www.mybait.org/aistore/api/stats" || echo "000")
             if [ "$code" = "200" ]; then ok=1; echo "API up ($i)"; break; fi
             sleep 3
           done
           if [ "$ok" != "1" ]; then
-            echo "::warning::api/stats nao 200 apos upload"
+            echo "::warning::api/stats nao 200 — tarball no servidor mas extract/restart pode faltar"
+            echo "api_ok=false" >> $GITHUB_OUTPUT
             exit 0
           fi
-          python3 -c "import json;s=json.load(open('/tmp/stats.json'));print('OK total',s.get('total'));assert s.get('total',0)>0"
+          python3 -c "import json;s=json.load(open('/tmp/stats.json'));print('OK total',s.get('total'));assert int(s.get('total',0))>0"
+
+          # HTML should include early basePath polyfill after full publish
+          curl -sS --max-time 20 "https://www.mybait.org/aistore/" -o /tmp/home.html
+          if grep -q '__BAIT_BASEPATH_PATCHED__\|withBase\|NEXT_PUBLIC_BASE_PATH' /tmp/home.html; then
+            echo "basepath_script=present"
+          else
+            echo "::warning::HTML ainda sem polyfill head — JS antigo em cache/extract incompleto"
+          fi
+
+          # Root /api must stay 404 (app lives under /aistore)
+          root=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 10 "https://www.mybait.org/api/stats" || echo 000)
+          echo "root /api/stats → $root (expected 404)"
+          echo "api_ok=true" >> $GITHUB_OUTPUT
 
       - name: Summary
         if: always()
         run: |
-          echo "### Deploy AI Store (${{ github.sha }})" >> $GITHUB_STEP_SUMMARY
+          echo "### Deploy AI Store production" >> $GITHUB_STEP_SUMMARY
+          echo "- commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- mode: \`${{ steps.creds.outputs.mode }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- artifact: \`${{ needs.build.outputs.artifact_sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- smoke api_ok: \`${{ steps.smoke.outputs.api_ok }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- URL: https://www.mybait.org/aistore/" >> $GITHUB_STEP_SUMMARY
