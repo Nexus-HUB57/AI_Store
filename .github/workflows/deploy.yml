@@ -53,7 +53,6 @@ jobs:
           node scripts/validate-ci-env.mjs deploy
           echo ""
           echo "::notice::HostGator runtime still needs SetEnv SESSION_SECRET in public_html/.htaccess"
-          echo "::notice::FTP path does not inject SESSION_SECRET into the Node process automatically"
 
   test:
     runs-on: ubuntu-latest
@@ -79,12 +78,11 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: npm ci
-      - name: Ensure SQLite DB path for SSG
+      - name: Sync Prisma schema to CI sqlite (always)
         run: |
           mkdir -p db
-          if [ ! -f db/custom.db ]; then
-            npx prisma db push --skip-generate || true
-          fi
+          # Always push so columns like McpPackage.displayName exist for SSG/prerender
+          npx prisma db push --skip-generate --accept-data-loss
       - run: npx prisma generate
       - run: npm run build
       - name: Package standalone
@@ -119,7 +117,6 @@ jobs:
           body: |
             ## AI Store v1.0.0
             Commit: ${{ github.sha }}
-            SHA-256: ${{ needs.build.outputs.artifact_sha }}
           draft: false
           prerelease: false
         env:
@@ -292,7 +289,7 @@ jobs:
           if [ -n "${SESSION_SECRET:-}" ] && [ ${#SESSION_SECRET} -ge 16 ]; then
             ssh deploy-target "export SESSION_SECRET=$(printf %q "$SESSION_SECRET"); bash ~/aistore-api/deploy-manual.sh || bash ~/public_html/deploy-manual.sh"
           else
-            echo "::warning::secrets.SESSION_SECRET missing — remote deploy-manual may fail or login will 500"
+            echo "::warning::secrets.SESSION_SECRET missing"
             ssh deploy-target "bash ~/aistore-api/deploy-manual.sh || bash ~/public_html/deploy-manual.sh"
           fi
 
@@ -306,7 +303,6 @@ jobs:
           set -e
           PASS=$(cat "$HG_PASS_FILE")
           echo "FTP mode → $HG_USER@$HG_HOST:$HG_PORT"
-
           mkdir -p /tmp/aistore-pkg
           for f in hostgator/aistore-api.cgi hostgator/api.cgi hostgator/.htaccess \
                    hostgator/setup_aistore.sh hostgator/deploy-manual.sh \
@@ -315,42 +311,23 @@ jobs:
             [ -f "$f" ] && cp "$f" "/tmp/aistore-pkg/$(basename "$f")" && echo "  pack $(basename "$f")"
           done
           cp aistore-standalone.tar.gz /tmp/aistore-codebase.tar.gz
-
           python3 - <<'PY'
-          import os
-          host=os.environ['HG_HOST']
-          port=os.environ['HG_PORT']
-          user=os.environ['HG_USER']
+          import os, pathlib
+          host=os.environ['HG_HOST']; port=os.environ['HG_PORT']; user=os.environ['HG_USER']
           password=open(os.environ['HG_PASS_FILE']).read()
-          lines=[
-            'set ftp:ssl-force true',
-            'set ssl:verify-certificate no',
-            'set net:timeout 180',
-            'set net:max-retries 3',
-            'set ftp:passive-mode true',
-            f'open -p {port} -u {user},{password} {host}',
-            'mkdir -p public_html/aistore',
-            'put /tmp/aistore-codebase.tar.gz -o public_html/aistore-codebase.tar.gz',
-          ]
-          import pathlib
+          lines=['set ftp:ssl-force true','set ssl:verify-certificate no','set net:timeout 180','set net:max-retries 3','set ftp:passive-mode true',f'open -p {port} -u {user},{password} {host}','mkdir -p public_html/aistore','put /tmp/aistore-codebase.tar.gz -o public_html/aistore-codebase.tar.gz']
           pkg=pathlib.Path('/tmp/aistore-pkg')
           if (pkg/'aistore-api.cgi').exists():
-            lines += ['put /tmp/aistore-pkg/aistore-api.cgi -o public_html/aistore/api.cgi', 'chmod 755 public_html/aistore/api.cgi']
+            lines += ['put /tmp/aistore-pkg/aistore-api.cgi -o public_html/aistore/api.cgi','chmod 755 public_html/aistore/api.cgi']
           elif (pkg/'api.cgi').exists():
-            lines += ['put /tmp/aistore-pkg/api.cgi -o public_html/aistore/api.cgi', 'chmod 755 public_html/aistore/api.cgi']
+            lines += ['put /tmp/aistore-pkg/api.cgi -o public_html/aistore/api.cgi','chmod 755 public_html/aistore/api.cgi']
           if (pkg/'.htaccess').exists():
             lines.append('put /tmp/aistore-pkg/.htaccess -o public_html/aistore/.htaccess')
-          if (pkg/'setup_aistore.sh').exists():
-            lines += ['put /tmp/aistore-pkg/setup_aistore.sh -o public_html/aistore/setup_aistore.sh', 'chmod 755 public_html/aistore/setup_aistore.sh']
           if (pkg/'deploy-manual.sh').exists():
-            lines += ['put /tmp/aistore-pkg/deploy-manual.sh -o public_html/deploy-manual.sh', 'chmod 755 public_html/deploy-manual.sh']
-          if (pkg/'deploy-on-server.sh').exists():
-            lines += ['put /tmp/aistore-pkg/deploy-on-server.sh -o public_html/deploy-on-server.sh', 'chmod 755 public_html/deploy-on-server.sh']
+            lines += ['put /tmp/aistore-pkg/deploy-manual.sh -o public_html/deploy-manual.sh','chmod 755 public_html/deploy-manual.sh']
           lines.append('bye')
           pathlib.Path('/tmp/lftp_run.txt').write_text('\n'.join(lines)+'\n')
-          print('lftp lines', len(lines))
           PY
-
           lftp -f /tmp/lftp_run.txt
           echo "[+] FTP upload complete"
 
@@ -359,19 +336,14 @@ jobs:
         continue-on-error: true
         run: |
           set +e
-          for url in \
-            "https://www.mybait.org/deploy-webhook.php" \
-            "https://www.mybait.org/aistore/api/health"
-          do
+          for url in "https://www.mybait.org/deploy-webhook.php" "https://www.mybait.org/aistore/api/health"; do
             code=$(curl -sS -o /tmp/hook.out -w "%{http_code}" --max-time 20 "$url" || echo 000)
             echo "  probe $url → $code"
           done
-          echo "::notice::Se o Node nao reiniciou: bash ~/public_html/deploy-manual.sh no Terminal cPanel"
 
       - name: Verify HostGator deploy
         run: |
           set -e
-          echo "Aguardando API (max 90s) mode=$HG_MODE..."
           ok=0
           for i in $(seq 1 30); do
             code=$(curl -sS -o /tmp/stats.json -w "%{http_code}" "https://www.mybait.org/aistore/api/stats" || echo "000")
@@ -379,7 +351,7 @@ jobs:
             sleep 3
           done
           if [ "$ok" != "1" ]; then
-            echo "::warning::api/stats nao 200 apos upload — extract/restart pode ser necessario no servidor"
+            echo "::warning::api/stats nao 200 apos upload"
             exit 0
           fi
           python3 -c "import json;s=json.load(open('/tmp/stats.json'));print('OK total',s.get('total'));assert s.get('total',0)>0"
@@ -389,4 +361,3 @@ jobs:
         run: |
           echo "### Deploy AI Store (${{ github.sha }})" >> $GITHUB_STEP_SUMMARY
           echo "- mode: \`${{ steps.creds.outputs.mode }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- tarball → public_html/aistore-codebase.tar.gz" >> $GITHUB_STEP_SUMMARY
