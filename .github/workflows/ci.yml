@@ -11,15 +11,46 @@ concurrency:
 
 env:
   NEXT_TELEMETRY_DISABLED: 1
+  # CI placeholder — never use on HostGator production
+  SESSION_SECRET: ci-build-only-not-for-production-16c
 
 jobs:
+  # ─── Stage 0: Validate env schema ────────────────────────────
+  validate-env:
+    name: Validate Env
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate test context
+        env:
+          DATABASE_URL: file:db/test.db
+          SESSION_SECRET: ci-build-only-not-for-production-16c
+          NODE_ENV: test
+        run: node scripts/validate-ci-env.mjs test
+      - name: Validate build context
+        env:
+          DATABASE_URL: file:db/build.db
+          SESSION_SECRET: ci-build-only-not-for-production-16c
+          NEXT_PUBLIC_BASE_PATH: /aistore
+          NEXT_PUBLIC_BASE_URL: https://www.mybait.org/aistore
+          NODE_ENV: production
+        run: node scripts/validate-ci-env.mjs build
+      - name: Validate e2e (local) context
+        env:
+          SESSION_SECRET: local-e2e-session-secret-min-16-chars
+          BASE_URL: http://localhost:3000
+          DATABASE_URL: file:./db/custom.db
+        run: node scripts/validate-ci-env.mjs e2e
+
   # ─── Stage 1: Test ───────────────────────────────────────────
   test:
     name: Test
+    needs: validate-env
     runs-on: ubuntu-latest
     env:
       NODE_ENV: test
       DATABASE_URL: "file:db/test.db"
+      SESSION_SECRET: ci-build-only-not-for-production-16c
 
     steps:
       - name: Checkout repository
@@ -115,6 +146,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: "file:db/build.db"
+      SESSION_SECRET: ci-build-only-not-for-production-16c
+      NEXT_PUBLIC_BASE_PATH: /aistore
+      NEXT_PUBLIC_BASE_URL: https://www.mybait.org/aistore
 
     steps:
       - name: Checkout repository

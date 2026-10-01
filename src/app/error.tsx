@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect } from 'react'
+import { AlertTriangle, Home, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { AlertTriangle, RefreshCw, Home } from 'lucide-react'
+import { getBasePath } from '@/lib/utils'
 
-export default function GlobalError({
+export default function Error({
   error,
   reset,
 }: {
@@ -15,8 +16,10 @@ export default function GlobalError({
     console.error('[AI Store Error Boundary]', error)
   }, [error])
 
+  const home = getBasePath() || '/aistore'
+
   return (
-    <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-6">
       <div className="max-w-md w-full text-center space-y-6">
         <div className="w-20 h-20 mx-auto rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center">
           <AlertTriangle className="w-10 h-10 text-rose-400" />
@@ -35,7 +38,9 @@ export default function GlobalError({
           <Button
             variant="outline"
             className="border-zinc-700 hover:bg-zinc-800 text-zinc-300"
-            onClick={() => (window.location.href = '/')}
+            onClick={() => {
+              window.location.href = home
+            }}
           >
             <Home className="w-4 h-4 mr-2" />
             Início

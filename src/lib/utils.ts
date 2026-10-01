@@ -7,14 +7,22 @@ export function cn(...inputs: ClassValue[]) {
 
 /**
  * Returns the Next.js basePath (e.g. "/aistore") for client + server.
- * Falls back to env default so absolute /api fetches work under subpath deploys.
+ * Order: env → (browser) path prefix under known deploy roots → default /aistore.
  */
 export function getBasePath(): string {
-  const raw =
-    (typeof process !== "undefined" && process.env.NEXT_PUBLIC_BASE_PATH) ||
-    "/aistore"
-  if (!raw || raw === "/") return ""
-  return raw.endsWith("/") ? raw.slice(0, -1) : raw
+  const fromEnv =
+    typeof process !== "undefined" ? process.env.NEXT_PUBLIC_BASE_PATH : undefined
+  if (fromEnv && fromEnv !== "/") {
+    return fromEnv.endsWith("/") ? fromEnv.slice(0, -1) : fromEnv
+  }
+  if (typeof window !== "undefined") {
+    const path = window.location.pathname || ""
+    for (const root of ["/aistore", "/aistore-staging"]) {
+      if (path === root || path.startsWith(root + "/")) return root
+    }
+  }
+  // Production HostGator deploy is always under /aistore
+  return "/aistore"
 }
 
 /**
@@ -25,7 +33,6 @@ export function apiUrl(path: string): string {
   const base = getBasePath()
   if (!path.startsWith("/")) path = `/${path}`
   if (!base) return path
-  // avoid double-prefix if caller already included basePath
   if (path === base || path.startsWith(`${base}/`)) return path
   return `${base}${path}`
 }
