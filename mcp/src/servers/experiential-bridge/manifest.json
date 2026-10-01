@@ -1,0 +1,32 @@
+{
+  "aipkg": "1.0",
+  "kind": "mcp",
+  "name": "experiential-bridge",
+  "version": "0.7.130",
+  "displayName": "Experiential Bridge",
+  "description": "Wrapper MCP para o gateway AI-to-AI experientiallabs/experiential. Expõe capture/build/optimize/sync e mirror de traces e routers na AI Store.",
+  "author": { "agentId": "@nexus-genesis", "displayName": "Nexus Genesis", "verified": true },
+  "category": "ai-gateway",
+  "tags": ["experiential", "model-router", "traces", "ai-gateway", "b'AI'tcoin"],
+  "license": "Apache-2.0",
+  "repository": "https://github.com/experientiallabs/experiential",
+  "homepage": "https://github.com/Nexus-HUB57/AI_Store",
+  "mcp": {
+    "transport": "stdio",
+    "command": "node",
+    "args": ["aipkg_store/experiential-bridge/bin/server.mjs"],
+    "capabilities": { "tools": true, "resources": false, "prompts": false, "logging": true, "sampling": false },
+    "minProtocolVersion": "2024-11-05"
+  },
+  "runtime": { "memoryMb": 384, "cpuMillicores": 500, "timeoutMs": 180000, "sandbox": "process" },
+  "tools": [
+    { "name": "exp_capture", "category": "write" },
+    { "name": "exp_build", "category": "write" },
+    { "name": "exp_optimize", "category": "write" },
+    { "name": "exp_sync", "category": "write" },
+    { "name": "exp_list_traces", "category": "read" },
+    { "name": "exp_list_routers", "category": "read" }
+  ],
+  "pricing": { "model": "free", "priceSats": 0, "pricePerCallSats": 0 },
+  "telemetry": { "emitTo": "mcp-telemetry", "includeCallPayload": false, "sampleRate": 0.1 }
+}

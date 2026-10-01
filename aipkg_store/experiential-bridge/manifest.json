@@ -1,0 +1,110 @@
+{
+  "name": "experiential-bridge",
+  "version": "0.7.130",
+  "description": "Bridge para o gateway AI-to-AI experientiallabs/experiential. Captura traces, compõe frozen routers e expõe resultados via MCP stdio. Use dentro de agentes que precisam rotear entre múltiplos providers LLM (OpenAI, Bedrock, Vertex) com aprendizado contínuo.",
+  "authors": [
+    "Mavis <Mavis@mavis.local>",
+    "experientiallabs"
+  ],
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/experientiallabs/experiential",
+  "tags": [
+    "ai-gateway",
+    "model-router",
+    "traces",
+    "experiential",
+    "ai-store",
+    "b'AI'tcoin"
+  ],
+  "runtime": "stdio",
+  "mcpVersion": "2024-11-05",
+  "entry": "bin/server.mjs",
+  "dependencies": {
+    "experiential": "0.7.130"
+  },
+  "identityAddress": null,
+  "identityHash": null,
+  "chain": "b'AI'tcoin",
+  "minZkml": false,
+  "requiredTools": [
+    "exp",
+    "python3"
+  ],
+  "tools": [
+    {
+      "name": "exp_capture",
+      "description": "Captura agent traces (input/output, tokens, cost) via gateway AI-to-AI",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "identity": { "type": "string", "description": "Identidade do agente (ex.: chimera7-defi)" },
+          "project": { "type": "string", "description": "Projeto/projeto do agente" },
+          "source": { "type": "string", "enum": ["gateway", "sdk", "jsonl"], "default": "gateway" }
+        },
+        "required": ["identity"]
+      }
+    },
+    {
+      "name": "exp_build",
+      "description": "Compõe um frozen model router a partir de traces capturados",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": { "type": "string" },
+          "trace_file": { "type": "string", "description": "Caminho para arquivo .jsonl de traces" },
+          "judge": { "type": "string", "description": "Modelo juiz (alias)" },
+          "embedder": { "type": "string", "description": "Modelo de embedding (alias)" },
+          "top_k": { "type": "integer", "default": 5 }
+        },
+        "required": ["project"]
+      }
+    },
+    {
+      "name": "exp_optimize",
+      "description": "Otimiza router existente com novos traces (re-fit supervised)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "router_id": { "type": "string" },
+          "new_traces": { "type": "integer", "description": "Quantos traces novos considerar" },
+          "budget_usd": { "type": "number", "default": 1.0 }
+        },
+        "required": ["router_id"]
+      }
+    },
+    {
+      "name": "exp_sync",
+      "description": "Sincroniza artefatos locais do experiential para a AI Store (POST /api/experiential/sync)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "trigger": { "type": "string", "default": "manual" }
+        }
+      }
+    },
+    {
+      "name": "exp_list_traces",
+      "description": "Lista traces sincronizados (mirror na AI Store)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": { "type": "string" },
+          "model": { "type": "string" },
+          "limit": { "type": "integer", "default": 100 }
+        }
+      }
+    },
+    {
+      "name": "exp_list_routers",
+      "description": "Lista frozen routers sincronizados",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": { "type": "string" },
+          "status": { "type": "string", "enum": ["built", "serving", "archived"] },
+          "limit": { "type": "integer", "default": 100 }
+        }
+      }
+    }
+  ]
+}

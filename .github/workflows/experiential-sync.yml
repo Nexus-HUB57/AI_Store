@@ -1,0 +1,84 @@
+name: Sync Experiential Artifacts
+
+on:
+  # cron: a cada 30 minutos
+  schedule:
+    - cron: '*/30 * * * *'
+  # permite disparo manual via Actions tab
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'URL da AI Store (default: env AISTORE_URL)'
+        required: false
+        default: ''
+      trigger:
+        description: 'Trigger label'
+        required: false
+        default: 'manual'
+
+jobs:
+  sync:
+    name: pull traces and routers from experiential
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    env:
+      AISTORE_URL: ${{ secrets.AISTORE_URL || 'http://localhost:3000' }}
+      EXP_ROOT: ${{ github.workspace }}/.exp
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: install experiential CLI
+        run: |
+          python -m pip install --upgrade pip
+          pip install "experiential==0.7.130" || echo "::warning::pip install falhou; sync metadata-only"
+          exp --version || echo "::warning::exp CLI não disponível"
+
+      - name: setup node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+
+      - name: trigger sync
+        id: sync
+        run: |
+          BASE_URL="${{ github.event.inputs.base_url }}"
+          if [ -n "$BASE_URL" ]; then
+            export AISTORE_URL="$BASE_URL"
+          fi
+          TRIGGER="${{ github.event.inputs.trigger || 'manual' }}"
+          node scripts/experiential-sync.mjs --trigger="$TRIGGER"
+
+      - name: fetch traces summary
+        if: always()
+        run: |
+          BASE_URL="${{ github.event.inputs.base_url }}"
+          if [ -z "$BASE_URL" ]; then
+            BASE_URL="${AISTORE_URL}"
+          fi
+          curl -sS "$BASE_URL/api/experiential/traces?limit=5" \
+            | jq '{ total: .total, sample: [.traces[] | {traceId, model, tokensIn, costUsd}] }' \
+            | tee -a $GITHUB_STEP_SUMMARY
+
+      - name: fetch routers summary
+        if: always()
+        run: |
+          BASE_URL="${{ github.event.inputs.base_url }}"
+          if [ -z "$BASE_URL" ]; then
+            BASE_URL="${AISTORE_URL}"
+          fi
+          curl -sS "$BASE_URL/api/experiential/routers?limit=5" \
+            | jq '{ total: .total, sample: [.routers[] | {routerId, project, status, traceCount}] }' \
+            | tee -a $GITHUB_STEP_SUMMARY
+
+      - name: notify failure
+        if: failure()
+        run: |
+          echo "::error::experiential sync falhou — veja logs acima"

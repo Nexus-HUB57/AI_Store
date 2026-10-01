@@ -289,3 +289,71 @@ model McpRagFeedback {
   @@index([packageId, signal])
   @@index([resolved])
 }
+
+// ============================================================================
+// Experiential (experientiallabs/experiential) — model router + traces mirror
+// ============================================================================
+// Espelha dados de exp CLI (capture/build/optimize/simulation) para consulta
+// pela AI Store. Idempotente; sync via /api/experiential/sync + cron 30 min.
+
+model ExperientialTrace {
+  id          String   @id @default(cuid())
+  traceId     String   @unique          // SHA-256d do trace original
+  source      String                     // gateway | sdk | jsonl | parquet
+  identity    String?                    // ex.: my-agent-001
+  project     String?                    // ex.: chimera7-defi
+  tokensIn    Int      @default(0)
+  tokensOut   Int      @default(0)
+  costUsd     Float    @default(0)
+  model       String?                    // ex.: gpt-4o-mini
+  provider    String?                    // ex.: openai | bedrock | vertex
+  latencyMs   Int      @default(0)
+  status      String   @default("captured")
+  capturedAt  DateTime?
+  syncedAt    DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([project, capturedAt])
+  @@index([model])
+  @@index([source])
+}
+
+model ExperientialRouter {
+  id            String   @id @default(cuid())
+  routerId      String   @unique        // ex.: chimera7-defi-router-v1
+  project       String?                   // projeto que originou o router
+  policy        String?                   // frozen policy ID
+  topK          Int      @default(5)
+  judgeModel    String?
+  embedder      String?
+  buildCostUsd  Float    @default(0)
+  traceCount    Int      @default(0)     // total de traces usados
+  sizeBytes     Int      @default(0)
+  status        String   @default("built")  // built | serving | archived
+  manifestJson  String   @default("{}")  // snapshot do manifesto do router
+  builtAt       DateTime?
+  syncedAt      DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([project])
+  @@index([status])
+}
+
+model ExperientialSync {
+  id          String   @id @default(cuid())
+  trigger     String                      // cron | manual | webhook
+  source      String                      // local-cli | github | filesystem
+  fetched     Int      @default(0)
+  inserted    Int      @default(0)
+  updated     Int      @default(0)
+  errors      Int      @default(0)
+  skipped     Int      @default(0)
+  durationMs  Int      @default(0)
+  expVersion  String?                     // versão do experiential CLI
+  errorLog    String   @default("[]")    // JSON array de erros
+  startedAt   DateTime @default(now())
+  finishedAt  DateTime?
+
+  @@index([startedAt])
+  @@index([trigger])
+}
