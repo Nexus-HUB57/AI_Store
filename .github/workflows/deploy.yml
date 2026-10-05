@@ -227,15 +227,21 @@ jobs:
                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0
               print(f'  key_ok={key_ok} bytes={key_path.stat().st_size}')
 
-          if password and (not key_ok or port in ('21', '990', '989', '')):
-              mode = 'ftp'
-              if not port or port in ('22',):
-                  port = '21' if not key_ok else (port or '21')
-              if not port:
-                  port = '21'
-          elif key_ok:
+          # Preferir SSH sempre que a chave for válida (deploy mais rápido e robusto).
+          # FTP só é usado se NÃO houver chave válida OU se a porta for explicitamente
+          # FTP (21/990/989) E o host for um servidor FTP-only.
+          if key_ok:
               mode = 'ssh'
-              port = port or '22'
+              # se a porta veio de CREDENCIAIS_HOSTGATOR como 21 mas existe chave válida,
+              # confiar na porta já configurada nos secrets SSH_*
+              ssh_port = clean(os.environ.get('SSH_PORT_S') or '22')
+              if port in ('21', '990', '989', '') and ssh_port not in ('21', '990', '989', ''):
+                  port = ssh_port
+              else:
+                  port = port or ssh_port
+          elif password and port in ('21', '990', '989', ''):
+              mode = 'ftp'
+              port = port or '21'
           elif password:
               mode = 'ftp'
               port = port or '21'
