@@ -16,7 +16,7 @@ import { AcquireButton } from "@/components/mcp/acquire-button";
 const prisma = new PrismaClient();
 
 interface PageProps {
-  params: { name: string };
+  params: Promise<{ name: string }>;
 }
 
 const CATEGORY_LABEL: Record<string, string> = {
