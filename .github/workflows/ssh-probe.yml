@@ -26,6 +26,7 @@ jobs:
           SSH_PORT_S: ${{ secrets.SSH_PORT }}
           SSH_USER_S: ${{ secrets.SSH_USER }}
           SSH_KEY_S: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_PASSPHRASE: ${{ secrets.SSH_KEY_PASSPHRASE }}
           VPS_HOST_S: ${{ secrets.VPS_HOST }}
           VPS_PORT_S: ${{ secrets.VPS_PORT }}
           VPS_USER_S: ${{ secrets.VPS_USER }}
@@ -36,7 +37,7 @@ jobs:
         run: |
           set -e
           python3 << 'PY'
-          import os, json, re, pathlib, base64, subprocess, tempfile
+          import os, json, re, pathlib, base64, subprocess
 
           def clean(s):
               if s is None: return ''
@@ -77,23 +78,18 @@ jobs:
           print(f'  host={bool(host)} user={bool(user)} key_len={len(key)} port={port}')
 
           if not host or not user:
-              print('::error::SSH_HOST/SSH_USER (or CREDENCIAIS_*) missing')
-              raise SystemExit(1)
+              print('::error::SSH_HOST/SSH_USER missing'); raise SystemExit(1)
           if not key:
-              print('::error::SSH_PRIVATE_KEY / VPS_SSH_KEY / private_key in JSON missing')
-              raise SystemExit(1)
+              print('::error::SSH_PRIVATE_KEY missing'); raise SystemExit(1)
 
           def normalize_key(raw: str) -> str:
               body = raw.strip()
-              # literal backslash-n from JSON paste
-              if '\\n' in body and 'BEGIN' in body.replace('\\n', '\n'):
+              if '\\n' in body:
                   body = body.replace('\\n', '\n')
               body = body.replace('\r\n', '\n').replace('\r', '\n')
-              # one-line PEM: insert newlines around headers
               if body.count('\n') < 3 and 'BEGIN' in body and 'END' in body:
                   body = re.sub(r'-----BEGIN ([A-Z0-9 ]+)-----\s*', r'-----BEGIN \1-----\n', body)
                   body = re.sub(r'\s*-----END ([A-Z0-9 ]+)-----', r'\n-----END \1-----\n', body)
-                  # split base64 body into 64-char lines
                   m = re.search(r'-----BEGIN [A-Z0-9 ]+-----\n(.+)\n-----END', body, re.S)
                   if m:
                       b64 = re.sub(r'\s+', '', m.group(1))
@@ -101,7 +97,6 @@ jobs:
                       hdr = re.search(r'-----BEGIN [A-Z0-9 ]+-----', body).group(0)
                       ftr = re.search(r'-----END [A-Z0-9 ]+-----', body).group(0)
                       body = hdr + '\n' + '\n'.join(lines) + '\n' + ftr + '\n'
-              # base64-encoded whole PEM
               if 'BEGIN' not in body:
                   try:
                       decoded = base64.b64decode(re.sub(r'\s+', '', body))
@@ -114,57 +109,69 @@ jobs:
               return body
 
           body = normalize_key(key)
-
-          # Safe diagnostics (never print key material)
-          has_begin = 'BEGIN' in body
-          has_end = 'END' in body
-          nlines = body.count('\n')
           kind = 'unknown'
-          for label in ('OPENSSH PRIVATE KEY', 'RSA PRIVATE KEY', 'EC PRIVATE KEY', 'PRIVATE KEY', 'DSA PRIVATE KEY'):
+          for label in ('OPENSSH PRIVATE KEY', 'RSA PRIVATE KEY', 'EC PRIVATE KEY', 'PRIVATE KEY'):
               if f'BEGIN {label}' in body:
-                  kind = label
-                  break
-          print(f'  key_diag: kind={kind} lines={nlines} has_begin={has_begin} has_end={has_end}')
-
-          if not has_begin:
-              print('::error::Key has no BEGIN marker — paste PRIVATE key PEM (not .pub)')
-              raise SystemExit(1)
-          if not has_end:
-              print('::error::Key has no END marker — secret may be truncated')
-              raise SystemExit(1)
+                  kind = label; break
+          print(f'  key_diag: kind={kind} lines={body.count(chr(10))} has_begin={"BEGIN" in body} has_end={"END" in body}')
 
           key_path = pathlib.Path.home() / '.ssh_key_resolved'
           key_path.write_text(body)
           key_path.chmod(0o600)
 
-          # Try without passphrase; capture stderr for diagnosis
-          proc = subprocess.run(
-              ['ssh-keygen', '-y', '-f', str(key_path), '-P', ''],
-              capture_output=True, text=True,
-          )
+          passphrase = (os.environ.get('SSH_PASSPHRASE') or '').strip()
+          # Empty passphrase first
+          proc = subprocess.run(['ssh-keygen', '-y', '-f', str(key_path), '-P', passphrase],
+                                capture_output=True, text=True)
           if proc.returncode != 0:
-              err = (proc.stderr or proc.stdout or '').strip().split('\n')[-1][:200]
-              print(f'::error::ssh-keygen parse failed: {err or "unknown"}')
-              print('::error::Common fixes: use ed25519 without passphrase; paste full PEM with real newlines; do not use .pub')
+              err = (proc.stderr or '').strip().split('\n')[-1][:220]
+              if 'passphrase' in err.lower() and not passphrase:
+                  print('::error::Private key is encrypted — set secret SSH_KEY_PASSPHRASE, or regenerate key with: ssh-keygen -t ed25519 -N ""')
+              else:
+                  print(f'::error::ssh-keygen parse failed: {err}')
               raise SystemExit(1)
-          print('  key_ok=true')
+          print('  key_ok=true' + (' (with passphrase)' if passphrase else ' (no passphrase)'))
 
           with open(os.environ['GITHUB_ENV'], 'a') as f:
               f.write(f'HG_HOST={host}\nHG_PORT={port}\nHG_USER={user}\n')
+              if passphrase:
+                  f.write('HG_NEED_AGENT=1\n')
+              else:
+                  f.write('HG_NEED_AGENT=0\n')
+          # write passphrase to file for ssh-add (never echo)
+          if passphrase:
+              pf = pathlib.Path.home() / '.ssh_passphrase'
+              pf.write_text(passphrase)
+              pf.chmod(0o600)
           PY
+
+      - name: Start ssh-agent if key has passphrase
+        if: env.HG_NEED_AGENT == '1'
+        run: |
+          set -e
+          eval "$(ssh-agent -s)"
+          echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> $GITHUB_ENV
+          echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> $GITHUB_ENV
+          # ssh-add with passphrase via SSH_ASKPASS
+          printf '%s\n' '#!/bin/sh' 'cat $HOME/.ssh_passphrase' > /tmp/askpass.sh
+          chmod 700 /tmp/askpass.sh
+          DISPLAY= SSH_ASKPASS=/tmp/askpass.sh SSH_ASKPASS_REQUIRE=force ssh-add "$HOME/.ssh_key_resolved"
+          echo "ssh-agent loaded key"
 
       - name: SSH connect test
         run: |
           set -e
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          cp "$HOME/.ssh_key_resolved" ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          KEY="$HOME/.ssh_key_resolved"
           {
             echo "Host deploy-target"
             echo "  HostName $HG_HOST"
             echo "  Port $HG_PORT"
             echo "  User $HG_USER"
-            echo "  IdentityFile $HOME/.ssh/id_deploy"
-            echo "  IdentitiesOnly yes"
+            if [ "${HG_NEED_AGENT:-0}" != "1" ]; then
+              echo "  IdentityFile $KEY"
+              echo "  IdentitiesOnly yes"
+            fi
             echo "  StrictHostKeyChecking accept-new"
             echo "  UserKnownHostsFile $HOME/.ssh/known_hosts"
             echo "  ConnectTimeout 15"
@@ -174,7 +181,6 @@ jobs:
           chmod 600 ~/.ssh/config
           : > ~/.ssh/known_hosts
           ssh-keyscan -T 8 -p "$HG_PORT" -H "$HG_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
-          echo "Connecting $HG_USER@$HG_HOST:$HG_PORT ..."
+          echo "Connecting $HG_USER@$HG_HOST:$HG_PORT (agent=${HG_NEED_AGENT:-0})..."
           ssh deploy-target 'echo REMOTE_OK; hostname; whoami; pwd; ls -la public_html 2>/dev/null | head -5 || ls -la ~ | head -8'
           echo "### SSH probe OK" >> $GITHUB_STEP_SUMMARY
-          echo "- host: \`$HG_HOST\` port \`$HG_PORT\` user \`$HG_USER\`" >> $GITHUB_STEP_SUMMARY
