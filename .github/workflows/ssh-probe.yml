@@ -26,7 +26,11 @@ jobs:
           SSH_PORT_S: ${{ secrets.SSH_PORT }}
           SSH_USER_S: ${{ secrets.SSH_USER }}
           SSH_KEY_S: ${{ secrets.SSH_PRIVATE_KEY }}
-          SSH_PASSPHRASE: ${{ secrets.SSH_KEY_PASSPHRASE }}
+          # Multiple aliases — user may name the secret differently
+          SSH_KEY_PASSPHRASE: ${{ secrets.SSH_KEY_PASSPHRASE }}
+          SSH_PASSPHRASE: ${{ secrets.SSH_PASSPHRASE }}
+          KEY_PASSPHRASE: ${{ secrets.KEY_PASSPHRASE }}
+          PASSPHRASE: ${{ secrets.PASSPHRASE }}
           VPS_HOST_S: ${{ secrets.VPS_HOST }}
           VPS_PORT_S: ${{ secrets.VPS_PORT }}
           VPS_USER_S: ${{ secrets.VPS_USER }}
@@ -48,7 +52,18 @@ jobs:
               'port': clean(os.environ.get('FORCE_PORT') or os.environ.get('SSH_PORT_S') or os.environ.get('VPS_PORT_S') or '22'),
               'user': clean(os.environ.get('SSH_USER_S') or os.environ.get('VPS_USER_S')),
               'key': (os.environ.get('SSH_KEY_S') or os.environ.get('VPS_KEY_S') or '').strip(),
+              'passphrase': '',
           }
+
+          # Prefer explicit passphrase secrets (first non-empty)
+          for envk in ('SSH_KEY_PASSPHRASE', 'SSH_PASSPHRASE', 'KEY_PASSPHRASE', 'PASSPHRASE'):
+              v = (os.environ.get(envk) or '').strip()
+              if v:
+                  st['passphrase'] = v
+                  print(f'  passphrase_from_secret={envk} len={len(v)}')
+                  break
+          else:
+              print('  passphrase_from_secret=NONE (all aliases empty)')
 
           def merge_json(raw, label):
               if not raw or not str(raw).strip():
@@ -70,12 +85,18 @@ jobs:
               k = c.get('private_key') or c.get('ssh_key') or c.get('ssh_private_key') or c.get('key') or ''
               if k and not st['key']:
                   st['key'] = str(k).strip()
+              # passphrase inside JSON (not FTP password)
+              pp = c.get('ssh_passphrase') or c.get('key_passphrase') or c.get('private_key_passphrase') or c.get('passphrase') or ''
+              if pp and not st['passphrase']:
+                  st['passphrase'] = str(pp).strip()
+                  print(f'  passphrase_from_json={label} len={len(st["passphrase"])}')
 
           merge_json(os.environ.get('CREDS_PLATAFORMA'), 'CREDENCIAIS_PLATAFORMA_BAIT')
           merge_json(os.environ.get('CREDS_HOSTGATOR'), 'CREDENCIAIS_HOSTGATOR')
 
           host, port, user, key = st['host'], st['port'] or '22', st['user'], st['key']
-          print(f'  host={bool(host)} user={bool(user)} key_len={len(key)} port={port}')
+          passphrase = st['passphrase']
+          print(f'  host={bool(host)} user={bool(user)} key_len={len(key)} port={port} passphrase_set={bool(passphrase)}')
 
           if not host or not user:
               print('::error::SSH_HOST/SSH_USER missing'); raise SystemExit(1)
@@ -113,32 +134,30 @@ jobs:
           for label in ('OPENSSH PRIVATE KEY', 'RSA PRIVATE KEY', 'EC PRIVATE KEY', 'PRIVATE KEY'):
               if f'BEGIN {label}' in body:
                   kind = label; break
-          print(f'  key_diag: kind={kind} lines={body.count(chr(10))} has_begin={"BEGIN" in body} has_end={"END" in body}')
+          print(f'  key_diag: kind={kind} lines={body.count(chr(10))}')
 
           key_path = pathlib.Path.home() / '.ssh_key_resolved'
           key_path.write_text(body)
           key_path.chmod(0o600)
 
-          passphrase = (os.environ.get('SSH_PASSPHRASE') or '').strip()
-          # Empty passphrase first
-          proc = subprocess.run(['ssh-keygen', '-y', '-f', str(key_path), '-P', passphrase],
-                                capture_output=True, text=True)
+          proc = subprocess.run(
+              ['ssh-keygen', '-y', '-f', str(key_path), '-P', passphrase],
+              capture_output=True, text=True,
+          )
           if proc.returncode != 0:
               err = (proc.stderr or '').strip().split('\n')[-1][:220]
-              if 'passphrase' in err.lower() and not passphrase:
-                  print('::error::Private key is encrypted — set secret SSH_KEY_PASSPHRASE, or regenerate key with: ssh-keygen -t ed25519 -N ""')
+              if 'passphrase' in err.lower():
+                  print('::error::Key encrypted but passphrase wrong or missing.')
+                  print('::error::Create REPO secret exactly named SSH_KEY_PASSPHRASE (Settings → Secrets → Actions → Repository secrets).')
+                  print('::error::Or regenerate: ssh-keygen -t ed25519 -N "" -f aistore_gha')
               else:
-                  print(f'::error::ssh-keygen parse failed: {err}')
+                  print(f'::error::ssh-keygen: {err}')
               raise SystemExit(1)
-          print('  key_ok=true' + (' (with passphrase)' if passphrase else ' (no passphrase)'))
+          print('  key_ok=true' + (' with_passphrase' if passphrase else ' no_passphrase'))
 
           with open(os.environ['GITHUB_ENV'], 'a') as f:
               f.write(f'HG_HOST={host}\nHG_PORT={port}\nHG_USER={user}\n')
-              if passphrase:
-                  f.write('HG_NEED_AGENT=1\n')
-              else:
-                  f.write('HG_NEED_AGENT=0\n')
-          # write passphrase to file for ssh-add (never echo)
+              f.write(f'HG_NEED_AGENT={"1" if passphrase else "0"}\n')
           if passphrase:
               pf = pathlib.Path.home() / '.ssh_passphrase'
               pf.write_text(passphrase)
@@ -152,7 +171,6 @@ jobs:
           eval "$(ssh-agent -s)"
           echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> $GITHUB_ENV
           echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> $GITHUB_ENV
-          # ssh-add with passphrase via SSH_ASKPASS
           printf '%s\n' '#!/bin/sh' 'cat $HOME/.ssh_passphrase' > /tmp/askpass.sh
           chmod 700 /tmp/askpass.sh
           DISPLAY= SSH_ASKPASS=/tmp/askpass.sh SSH_ASKPASS_REQUIRE=force ssh-add "$HOME/.ssh_key_resolved"
@@ -181,6 +199,6 @@ jobs:
           chmod 600 ~/.ssh/config
           : > ~/.ssh/known_hosts
           ssh-keyscan -T 8 -p "$HG_PORT" -H "$HG_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
-          echo "Connecting $HG_USER@$HG_HOST:$HG_PORT (agent=${HG_NEED_AGENT:-0})..."
+          echo "Connecting $HG_USER@$HG_HOST:$HG_PORT agent=${HG_NEED_AGENT:-0}..."
           ssh deploy-target 'echo REMOTE_OK; hostname; whoami; pwd; ls -la public_html 2>/dev/null | head -5 || ls -la ~ | head -8'
           echo "### SSH probe OK" >> $GITHUB_STEP_SUMMARY
