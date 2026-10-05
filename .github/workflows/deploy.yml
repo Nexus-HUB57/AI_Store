@@ -18,6 +18,11 @@ on:
         required: false
         default: 'false'
         type: boolean
+      prefer_ssh:
+        description: 'Force SSH mode when key present (ignore FTP port 21)'
+        required: false
+        default: 'true'
+        type: boolean
 
 env:
   NODE_VERSION: '20.18.0'
@@ -52,7 +57,7 @@ jobs:
           CREDENCIAIS_PLATAFORMA_BAIT: ${{ secrets.CREDENCIAIS_PLATAFORMA_BAIT }}
         run: |
           node scripts/validate-ci-env.mjs deploy
-          echo "::notice::Production needs SESSION_SECRET on host + extract of aistore-codebase.tar.gz"
+          echo "::notice::Prefer SSH (SSH_PRIVATE_KEY + port 22). FTP from GHA often times out on HostGator:21"
 
   test:
     runs-on: ubuntu-latest
@@ -100,12 +105,6 @@ jobs:
           name: aistore-standalone
           path: aistore-standalone.tar.gz
           retention-days: 14
-      - name: Build summary
-        run: |
-          echo "### Build" >> $GITHUB_STEP_SUMMARY
-          echo "- commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- tarball sha256: \`${{ steps.hash.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- basePath: /aistore" >> $GITHUB_STEP_SUMMARY
 
   release:
     runs-on: ubuntu-latest
@@ -123,21 +122,20 @@ jobs:
           tag_name: aistore-v1.0.0-${{ github.run_number }}
           files: aistore-standalone.tar.gz
           body: |
-            ## AI Store production artifact
-            - Commit: ${{ github.sha }}
-            - SHA-256: ${{ needs.build.outputs.artifact_sha }}
-            - basePath: /aistore
+            AI Store production artifact
+            Commit: ${{ github.sha }}
+            SHA-256: ${{ needs.build.outputs.artifact_sha }}
           draft: false
           prerelease: false
-          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish-hostgator:
-    name: Publish to HostGator (SSH or FTP)
+    name: Publish to HostGator (SSH preferred)
     runs-on: ubuntu-latest
     needs: [build]
     if: ${{ github.event.inputs.skip_hostgator != 'true' && needs.build.result == 'success' }}
+    timeout-minutes: 25
     environment:
       name: production
       url: https://www.mybait.org/aistore/
@@ -147,7 +145,7 @@ jobs:
         with:
           name: aistore-standalone
 
-      - name: Resolve credentials
+      - name: Resolve credentials (SSH > FTP)
         id: creds
         env:
           SSH_HOST_S: ${{ secrets.SSH_HOST }}
@@ -160,6 +158,7 @@ jobs:
           VPS_KEY_S: ${{ secrets.VPS_SSH_KEY }}
           CREDS_PLATAFORMA: ${{ secrets.CREDENCIAIS_PLATAFORMA_BAIT }}
           CREDS_HOSTGATOR: ${{ secrets.CREDENCIAIS_HOSTGATOR }}
+          PREFER_SSH: ${{ github.event.inputs.prefer_ssh || 'true' }}
         run: |
           set -e
           python3 << 'PY'
@@ -191,7 +190,8 @@ jobs:
               print(f'  {label}: keys={sorted(c.keys())}')
               st['host'] = st['host'] or clean(c.get('host') or c.get('ssh_host') or c.get('hostname') or c.get('ip') or c.get('ftp_host'))
               st['user'] = st['user'] or clean(c.get('user') or c.get('ssh_user') or c.get('username') or c.get('ftp_user'))
-              p = c.get('port') or c.get('ssh_port') or c.get('ftp_port')
+              # Prefer ssh_port over generic port (generic often is FTP 21)
+              p = c.get('ssh_port') or c.get('port') or c.get('ftp_port')
               if p is not None and str(p).strip():
                   st['port'] = clean(str(p))
               k = c.get('private_key') or c.get('ssh_key') or c.get('ssh_private_key') or c.get('key') or ''
@@ -207,7 +207,7 @@ jobs:
           host, port, user = st['host'], st['port'], st['user']
           key, password = st['key'], st['password']
           if not host or not user:
-              print('::error::host/user vazios apos resolve')
+              print('::error::host/user vazios — set SSH_HOST+SSH_USER or CREDENCIAIS_*')
               raise SystemExit(1)
 
           key_path = pathlib.Path.home() / '.ssh_key_resolved'
@@ -225,28 +225,26 @@ jobs:
               key_path.chmod(0o600)
               key_ok = subprocess.call(['ssh-keygen', '-y', '-f', str(key_path)],
                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0
-              print(f'  key_ok={key_ok} bytes={key_path.stat().st_size}')
+              print(f'  key_ok={key_ok} bytes={key_path.stat().st_size if key_path.exists() else 0}')
 
-          # Preferir SSH sempre que a chave for válida (deploy mais rápido e robusto).
-          # FTP só é usado se NÃO houver chave válida OU se a porta for explicitamente
-          # FTP (21/990/989) E o host for um servidor FTP-only.
-          if key_ok:
+          prefer_ssh = (os.environ.get('PREFER_SSH') or 'true').lower() in ('true', '1', 'yes')
+
+          # SSH wins whenever key parses — never SSH on port 21
+          if key_ok and prefer_ssh:
               mode = 'ssh'
-              # se a porta veio de CREDENCIAIS_HOSTGATOR como 21 mas existe chave válida,
-              # confiar na porta já configurada nos secrets SSH_*
-              ssh_port = clean(os.environ.get('SSH_PORT_S') or '22')
-              if port in ('21', '990', '989', '') and ssh_port not in ('21', '990', '989', ''):
-                  port = ssh_port
-              else:
-                  port = port or ssh_port
-          elif password and port in ('21', '990', '989', ''):
-              mode = 'ftp'
-              port = port or '21'
+              if not port or port in ('21', '990', '989'):
+                  port = clean(os.environ.get('SSH_PORT_S') or '22') or '22'
+                  if port in ('21', '990', '989'):
+                      port = '22'
+          elif key_ok:
+              mode = 'ssh'
+              port = port if port and port not in ('21', '990', '989') else '22'
           elif password:
               mode = 'ftp'
-              port = port or '21'
+              port = port if port in ('21', '990', '989') else '21'
+              print('::warning::No valid SSH key — FTP fallback (may timeout from GHA)')
           else:
-              print('::error::Nem private_key valida nem password FTP')
+              print('::error::Need SSH_PRIVATE_KEY (PEM) or FTP password in CREDENCIAIS_*')
               raise SystemExit(1)
 
           with open(os.environ['GITHUB_ENV'], 'a') as f:
@@ -276,12 +274,14 @@ jobs:
             echo "  StrictHostKeyChecking accept-new"
             echo "  UserKnownHostsFile $HOME/.ssh/known_hosts"
             echo "  ConnectTimeout 20"
+            echo "  BatchMode yes"
             echo "  LogLevel ERROR"
           } > ~/.ssh/config
           chmod 600 ~/.ssh/config
           : > ~/.ssh/known_hosts
           ssh-keyscan -T 8 -p "$HG_PORT" -H "$HG_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
-          ssh -o BatchMode=yes deploy-target 'echo remote-ok && hostname && whoami'
+          echo "SSH probe $HG_USER@$HG_HOST:$HG_PORT"
+          ssh deploy-target 'echo remote-ok && hostname && whoami && ls -la public_html 2>/dev/null | head -5 || true'
 
       - name: Upload + restart (SSH)
         if: steps.creds.outputs.mode == 'ssh'
@@ -289,11 +289,11 @@ jobs:
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
         run: |
           set -e
-          scp aistore-standalone.tar.gz deploy-target:~/public_html/aistore-codebase.tar.gz
+          scp -o ConnectTimeout=30 aistore-standalone.tar.gz deploy-target:~/public_html/aistore-codebase.tar.gz
           if [ -n "${SESSION_SECRET:-}" ] && [ ${#SESSION_SECRET} -ge 16 ]; then
             ssh deploy-target "export SESSION_SECRET=$(printf %q "$SESSION_SECRET"); bash ~/aistore-api/deploy-manual.sh || bash ~/public_html/deploy-manual.sh"
           else
-            echo "::warning::SESSION_SECRET missing — extract/restart may still work"
+            echo "::warning::SESSION_SECRET missing on GHA — remote deploy-manual may still extract"
             ssh deploy-target "bash ~/aistore-api/deploy-manual.sh || bash ~/public_html/deploy-manual.sh"
           fi
 
@@ -301,17 +301,16 @@ jobs:
         if: steps.creds.outputs.mode == 'ftp'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
 
-      - name: Upload via FTP (tarball + CGI)
+      - name: Upload via FTP (fail-fast)
         if: steps.creds.outputs.mode == 'ftp'
+        timeout-minutes: 8
         run: |
           set -e
-          echo "FTP → $HG_USER@$HG_HOST:$HG_PORT"
+          echo "FTP → $HG_USER@$HG_HOST:$HG_PORT (fail-fast timeouts)"
           mkdir -p /tmp/aistore-pkg
           for f in hostgator/aistore-api.cgi hostgator/api.cgi hostgator/.htaccess \
-                   hostgator/setup_aistore.sh hostgator/deploy-manual.sh \
-                   deploy/aistore-api.cgi deploy/.htaccess deploy/setup_aistore.sh \
-                   deploy/deploy-on-server.sh; do
-            [ -f "$f" ] && cp "$f" "/tmp/aistore-pkg/$(basename "$f")" && echo "  pack $(basename "$f")"
+                   hostgator/deploy-manual.sh deploy/deploy-on-server.sh; do
+            [ -f "$f" ] && cp "$f" "/tmp/aistore-pkg/$(basename "$f")"
           done
           cp aistore-standalone.tar.gz /tmp/aistore-codebase.tar.gz
           python3 - <<'PY'
@@ -321,8 +320,8 @@ jobs:
           lines=[
             'set ftp:ssl-force true',
             'set ssl:verify-certificate no',
-            'set net:timeout 300',
-            'set net:max-retries 5',
+            'set net:timeout 25',
+            'set net:max-retries 2',
             'set ftp:passive-mode true',
             f'open -p {port} -u {user},{password} {host}',
             'mkdir -p public_html/aistore',
@@ -331,73 +330,43 @@ jobs:
           pkg=pathlib.Path('/tmp/aistore-pkg')
           if (pkg/'aistore-api.cgi').exists():
             lines += ['put /tmp/aistore-pkg/aistore-api.cgi -o public_html/aistore/api.cgi', 'chmod 755 public_html/aistore/api.cgi']
-          elif (pkg/'api.cgi').exists():
-            lines += ['put /tmp/aistore-pkg/api.cgi -o public_html/aistore/api.cgi', 'chmod 755 public_html/aistore/api.cgi']
-          if (pkg/'.htaccess').exists():
-            lines.append('put /tmp/aistore-pkg/.htaccess -o public_html/aistore/.htaccess')
           if (pkg/'deploy-manual.sh').exists():
             lines += ['put /tmp/aistore-pkg/deploy-manual.sh -o public_html/deploy-manual.sh', 'chmod 755 public_html/deploy-manual.sh']
-          if (pkg/'deploy-on-server.sh').exists():
-            lines += ['put /tmp/aistore-pkg/deploy-on-server.sh -o public_html/deploy-on-server.sh', 'chmod 755 public_html/deploy-on-server.sh']
           lines.append('bye')
           pathlib.Path('/tmp/lftp_run.txt').write_text('\n'.join(lines)+'\n')
-          print('lftp lines', len(lines))
           PY
           lftp -f /tmp/lftp_run.txt
           echo "[+] FTP upload complete"
-
-      - name: Try remote extract via webhook
-        if: steps.creds.outputs.mode == 'ftp'
-        continue-on-error: true
-        run: |
-          set +e
-          for url in \
-            "https://www.mybait.org/deploy-webhook.php" \
-            "https://www.mybait.org/aistore/api/health"
-          do
-            code=$(curl -sS -o /tmp/hook.out -w "%{http_code}" --max-time 20 "$url" || echo 000)
-            echo "  probe $url → $code"
-          done
-          echo "::notice::Se Node nao reiniciou: bash ~/public_html/deploy-manual.sh no Terminal cPanel"
 
       - name: Smoke — API + basePath gate
         id: smoke
         run: |
           set -e
-          echo "Aguardando API (max 120s)..."
           ok=0
-          for i in $(seq 1 40); do
+          for i in $(seq 1 30); do
             code=$(curl -sS -o /tmp/stats.json -w "%{http_code}" --max-time 15 \
               "https://www.mybait.org/aistore/api/stats" || echo "000")
-            if [ "$code" = "200" ]; then ok=1; echo "API up ($i)"; break; fi
+            if [ "$code" = "200" ]; then ok=1; break; fi
             sleep 3
           done
           if [ "$ok" != "1" ]; then
-            echo "::warning::api/stats nao 200 — tarball no servidor mas extract/restart pode faltar"
+            echo "::warning::api/stats not 200 after publish"
             echo "api_ok=false" >> $GITHUB_OUTPUT
             exit 0
           fi
           python3 -c "import json;s=json.load(open('/tmp/stats.json'));print('OK total',s.get('total'));assert int(s.get('total',0))>0"
-
-          # HTML should include early basePath polyfill after full publish
           curl -sS --max-time 20 "https://www.mybait.org/aistore/" -o /tmp/home.html
-          if grep -q '__BAIT_BASEPATH_PATCHED__\|withBase\|NEXT_PUBLIC_BASE_PATH' /tmp/home.html; then
-            echo "basepath_script=present"
+          if grep -q '__BAIT_BASEPATH_PATCHED__' /tmp/home.html; then
+            echo "basepath_polyfill=present"
           else
-            echo "::warning::HTML ainda sem polyfill head — JS antigo em cache/extract incompleto"
+            echo "::warning::HTML without polyfill — may need hard refresh or extract incomplete"
           fi
-
-          # Root /api must stay 404 (app lives under /aistore)
-          root=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 10 "https://www.mybait.org/api/stats" || echo 000)
-          echo "root /api/stats → $root (expected 404)"
           echo "api_ok=true" >> $GITHUB_OUTPUT
 
       - name: Summary
         if: always()
         run: |
-          echo "### Deploy AI Store production" >> $GITHUB_STEP_SUMMARY
-          echo "- commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "### Deploy AI Store" >> $GITHUB_STEP_SUMMARY
           echo "- mode: \`${{ steps.creds.outputs.mode }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- artifact: \`${{ needs.build.outputs.artifact_sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- smoke api_ok: \`${{ steps.smoke.outputs.api_ok }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- URL: https://www.mybait.org/aistore/" >> $GITHUB_STEP_SUMMARY
+          echo "- commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- smoke: \`${{ steps.smoke.outputs.api_ok }}\`" >> $GITHUB_STEP_SUMMARY
