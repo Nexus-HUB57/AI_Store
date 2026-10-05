@@ -36,7 +36,7 @@ jobs:
         run: |
           set -e
           python3 << 'PY'
-          import os, json, re, pathlib, base64, subprocess
+          import os, json, re, pathlib, base64, subprocess, tempfile
 
           def clean(s):
               if s is None: return ''
@@ -83,25 +83,69 @@ jobs:
               print('::error::SSH_PRIVATE_KEY / VPS_SSH_KEY / private_key in JSON missing')
               raise SystemExit(1)
 
-          body = key.replace('\\n', '\n')
-          if 'BEGIN' not in body:
-              try:
-                  decoded = base64.b64decode(re.sub(r'\s+', '', body))
-                  if b'BEGIN' in decoded:
-                      body = decoded.decode()
-              except Exception:
-                  pass
-          if 'BEGIN' not in body:
-              print('::error::Key does not look like PEM (no BEGIN marker after normalize)')
+          def normalize_key(raw: str) -> str:
+              body = raw.strip()
+              # literal backslash-n from JSON paste
+              if '\\n' in body and 'BEGIN' in body.replace('\\n', '\n'):
+                  body = body.replace('\\n', '\n')
+              body = body.replace('\r\n', '\n').replace('\r', '\n')
+              # one-line PEM: insert newlines around headers
+              if body.count('\n') < 3 and 'BEGIN' in body and 'END' in body:
+                  body = re.sub(r'-----BEGIN ([A-Z0-9 ]+)-----\s*', r'-----BEGIN \1-----\n', body)
+                  body = re.sub(r'\s*-----END ([A-Z0-9 ]+)-----', r'\n-----END \1-----\n', body)
+                  # split base64 body into 64-char lines
+                  m = re.search(r'-----BEGIN [A-Z0-9 ]+-----\n(.+)\n-----END', body, re.S)
+                  if m:
+                      b64 = re.sub(r'\s+', '', m.group(1))
+                      lines = [b64[i:i+64] for i in range(0, len(b64), 64)]
+                      hdr = re.search(r'-----BEGIN [A-Z0-9 ]+-----', body).group(0)
+                      ftr = re.search(r'-----END [A-Z0-9 ]+-----', body).group(0)
+                      body = hdr + '\n' + '\n'.join(lines) + '\n' + ftr + '\n'
+              # base64-encoded whole PEM
+              if 'BEGIN' not in body:
+                  try:
+                      decoded = base64.b64decode(re.sub(r'\s+', '', body))
+                      if b'BEGIN' in decoded:
+                          body = decoded.decode()
+                  except Exception:
+                      pass
+              if not body.endswith('\n'):
+                  body += '\n'
+              return body
+
+          body = normalize_key(key)
+
+          # Safe diagnostics (never print key material)
+          has_begin = 'BEGIN' in body
+          has_end = 'END' in body
+          nlines = body.count('\n')
+          kind = 'unknown'
+          for label in ('OPENSSH PRIVATE KEY', 'RSA PRIVATE KEY', 'EC PRIVATE KEY', 'PRIVATE KEY', 'DSA PRIVATE KEY'):
+              if f'BEGIN {label}' in body:
+                  kind = label
+                  break
+          print(f'  key_diag: kind={kind} lines={nlines} has_begin={has_begin} has_end={has_end}')
+
+          if not has_begin:
+              print('::error::Key has no BEGIN marker — paste PRIVATE key PEM (not .pub)')
+              raise SystemExit(1)
+          if not has_end:
+              print('::error::Key has no END marker — secret may be truncated')
               raise SystemExit(1)
 
           key_path = pathlib.Path.home() / '.ssh_key_resolved'
-          key_path.write_text(body if body.endswith('\n') else body + '\n')
+          key_path.write_text(body)
           key_path.chmod(0o600)
-          rc = subprocess.call(['ssh-keygen', '-y', '-f', str(key_path)],
-              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-          if rc != 0:
-              print('::error::ssh-keygen cannot parse private key (wrong format/passphrase?)')
+
+          # Try without passphrase; capture stderr for diagnosis
+          proc = subprocess.run(
+              ['ssh-keygen', '-y', '-f', str(key_path), '-P', ''],
+              capture_output=True, text=True,
+          )
+          if proc.returncode != 0:
+              err = (proc.stderr or proc.stdout or '').strip().split('\n')[-1][:200]
+              print(f'::error::ssh-keygen parse failed: {err or "unknown"}')
+              print('::error::Common fixes: use ed25519 without passphrase; paste full PEM with real newlines; do not use .pub')
               raise SystemExit(1)
           print('  key_ok=true')
 
