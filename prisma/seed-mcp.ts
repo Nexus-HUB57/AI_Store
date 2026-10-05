@@ -187,7 +187,8 @@ function storePkgFields(serverName: string) {
     pricing: { model: "free", priceSats: 0, pricePerCallSats: 0 },
     telemetry: { emitTo: "pulsar", includeCallPayload: false, sampleRate: 1.0 },
   };
-  return {
+const STORE_MCP_PKGS: any[] = [  // legacy array wrapper, added 2026-10-05 to fix syntax
+  {
     name: `mcp-${serverName}`,
     version: "1.0.0",
     displayName: meta.displayName,
@@ -210,9 +211,6 @@ function storePkgFields(serverName: string) {
     priceSats: 0,
     pricePerCallSats: 0,
     featured: false,
-    repoUrl: "https://github.com/baitcoin/bAIcoin/tree/main/baitcoin_mainnet",
-    homepage: "https://mybait.org/mcp/self-heal",
-    license: "MIT",
   },
   {
     name: "mcp-agentic-awareness",
@@ -3390,5 +3388,6 @@ main()
     await prisma.$disconnect();
     process.exit(1);
   });
+}
 
 export default main;

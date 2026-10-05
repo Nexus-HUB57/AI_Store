@@ -6,7 +6,7 @@
  * is 100% synchronized with 2704 tools.
  */
 
-const { PrismaClient } = require('@prisma/client');
+import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 const TOTAL_TOOLS = 2704;

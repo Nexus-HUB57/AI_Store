@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/select'
 import {
   Search, Download, Star, Activity, Package, Zap, Shield,
+  ShoppingCart,
   Terminal, ChevronLeft, ChevronRight, RefreshCw, LayoutGrid,
   List, Filter, Server, CheckCircle2, AlertCircle, XCircle,
 } from 'lucide-react'
