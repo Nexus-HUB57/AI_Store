@@ -152,6 +152,11 @@ jobs:
           SSH_PORT_S: ${{ secrets.SSH_PORT }}
           SSH_USER_S: ${{ secrets.SSH_USER }}
           SSH_KEY_S: ${{ secrets.SSH_PRIVATE_KEY }}
+          # Passphrase aliases (in priority order)
+          SSH_KEY_PASSPHRASE: ${{ secrets.SSH_KEY_PASSPHRASE }}
+          SSH_PASSPHRASE: ${{ secrets.SSH_PASSPHRASE }}
+          KEY_PASSPHRASE: ${{ secrets.KEY_PASSPHRASE }}
+          PASSPHRASE: ${{ secrets.PASSPHRASE }}
           VPS_HOST_S: ${{ secrets.VPS_HOST }}
           VPS_PORT_S: ${{ secrets.VPS_PORT }}
           VPS_USER_S: ${{ secrets.VPS_USER }}
@@ -173,8 +178,19 @@ jobs:
               'port': clean(os.environ.get('SSH_PORT_S') or os.environ.get('VPS_PORT_S')),
               'user': clean(os.environ.get('SSH_USER_S') or os.environ.get('VPS_USER_S')),
               'key': (os.environ.get('SSH_KEY_S') or os.environ.get('VPS_KEY_S') or '').strip(),
+              'passphrase': '',
               'password': '',
           }
+
+          # Pick passphrase from any of the alias secrets
+          for envk in ('SSH_KEY_PASSPHRASE', 'SSH_PASSPHRASE', 'KEY_PASSPHRASE', 'PASSPHRASE'):
+              v = (os.environ.get(envk) or '').strip()
+              if v:
+                  st['passphrase'] = v
+                  print(f'  passphrase_from_secret={envk} len={len(v)}')
+                  break
+          else:
+              print('  passphrase_from_secret=NONE (all aliases empty)')
 
           def merge_json(raw, label):
               if not raw or not str(raw).strip():
@@ -212,6 +228,7 @@ jobs:
 
           key_path = pathlib.Path.home() / '.ssh_key_resolved'
           key_ok = False
+          key_needs_passphrase = False
           if key:
               body = key.replace('\\n', '\n')
               if 'BEGIN' not in body:
@@ -223,9 +240,17 @@ jobs:
                       pass
               key_path.write_text(body if body.endswith('\n') else body + '\n')
               key_path.chmod(0o600)
-              key_ok = subprocess.call(['ssh-keygen', '-y', '-f', str(key_path)],
-                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0
-              print(f'  key_ok={key_ok} bytes={key_path.stat().st_size if key_path.exists() else 0}')
+              # Detecta marker "ENCRYPTED" na chave — significa que precisa passphrase
+              key_needs_passphrase = ('ENCRYPTED' in body)
+              # Tenta validar com ssh-keygen; se falhar e a chave tem ENCRYPTED,
+              # aceita como válida desde que tenhamos o passphrase secret
+              if key_needs_passphrase and st['passphrase']:
+                  key_ok = True
+                  print('  key requires passphrase (will use ssh-agent)')
+              else:
+                  key_ok = subprocess.call(['ssh-keygen', '-y', '-f', str(key_path)],
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0
+              print(f'  key_ok={key_ok} bytes={key_path.stat().st_size if key_path.exists() else 0} encrypted={key_needs_passphrase}')
 
           prefer_ssh = (os.environ.get('PREFER_SSH') or 'true').lower() in ('true', '1', 'yes')
 
@@ -249,10 +274,14 @@ jobs:
 
           with open(os.environ['GITHUB_ENV'], 'a') as f:
               f.write(f'HG_HOST={host}\nHG_PORT={port}\nHG_USER={user}\nHG_MODE={mode}\n')
+              f.write(f'HG_NEED_AGENT={"1" if (mode == "ssh" and key_needs_passphrase) else "0"}\n')
               if password:
                   pf = pathlib.Path.home() / '.hg_pass'
                   pf.write_text(password); pf.chmod(0o600)
                   f.write(f'HG_PASS_FILE={pf}\n')
+              if mode == 'ssh' and key_needs_passphrase and st['passphrase']:
+                  ppf = pathlib.Path.home() / '.ssh_passphrase'
+                  ppf.write_text(st['passphrase']); ppf.chmod(0o600)
           print(f'  resolved mode={mode} host={host} port={port} user={user}')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as o:
               o.write(f'mode={mode}\n')
@@ -264,12 +293,22 @@ jobs:
           set -e
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           cp "$HOME/.ssh_key_resolved" ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          # Se a chave precisa de passphrase, carrega via ssh-agent com SSH_ASKPASS
+          if [ "${HG_NEED_AGENT:-0}" = "1" ]; then
+            eval "$(ssh-agent -s)"
+            echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> $GITHUB_ENV
+            echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> $GITHUB_ENV
+            printf '%s\n' '#!/bin/sh' 'cat $HOME/.ssh_passphrase' > /tmp/askpass.sh
+            chmod 700 /tmp/askpass.sh
+            DISPLAY= SSH_ASKPASS=/tmp/askpass.sh SSH_ASKPASS_REQUIRE=force \
+              ssh-add "$HOME/.ssh_key_resolved"
+            echo "  ssh-agent loaded encrypted key"
+          fi
           {
             echo "Host deploy-target"
             echo "  HostName $HG_HOST"
             echo "  Port $HG_PORT"
             echo "  User $HG_USER"
-            echo "  IdentityFile $HOME/.ssh/id_deploy"
             echo "  IdentitiesOnly yes"
             echo "  StrictHostKeyChecking accept-new"
             echo "  UserKnownHostsFile $HOME/.ssh/known_hosts"
@@ -280,7 +319,7 @@ jobs:
           chmod 600 ~/.ssh/config
           : > ~/.ssh/known_hosts
           ssh-keyscan -T 8 -p "$HG_PORT" -H "$HG_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
-          echo "SSH probe $HG_USER@$HG_HOST:$HG_PORT"
+          echo "SSH probe $HG_USER@$HG_HOST:$HG_PORT agent=${HG_NEED_AGENT:-0}"
           ssh deploy-target 'echo remote-ok && hostname && whoami && ls -la public_html 2>/dev/null | head -5 || true'
 
       - name: Upload + restart (SSH)
@@ -289,7 +328,22 @@ jobs:
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
         run: |
           set -e
-          scp -o ConnectTimeout=30 aistore-standalone.tar.gz deploy-target:~/public_html/aistore-codebase.tar.gz
+          if [ "${HG_NEED_AGENT:-0}" = "1" ]; then
+            eval "$(ssh-agent -s)"
+            SSH_AUTH_SOCK=$SSH_AUTH_SOCK SSH_AGENT_PID=$SSH_AGENT_PID
+            export SSH_AUTH_SOCK SSH_AGENT_PID
+            printf '%s\n' '#!/bin/sh' 'cat $HOME/.ssh_passphrase' > /tmp/askpass.sh
+            chmod 700 /tmp/askpass.sh
+            DISPLAY= SSH_ASKPASS=/tmp/askpass.sh SSH_ASKPASS_REQUIRE=force \
+              ssh-add "$HOME/.ssh_key_resolved"
+          fi
+          if [ "${HG_NEED_AGENT:-0}" = "1" ]; then
+            # scp não suporta ssh-agent forward sem mais setup — usa cat+ssh
+            gzip -c aistore-standalone.tar.gz | ssh deploy-target \
+              'gunzip > ~/public_html/aistore-codebase.tar.gz'
+          else
+            scp -o ConnectTimeout=30 aistore-standalone.tar.gz deploy-target:~/public_html/aistore-codebase.tar.gz
+          fi
           if [ -n "${SESSION_SECRET:-}" ] && [ ${#SESSION_SECRET} -ge 16 ]; then
             ssh deploy-target "export SESSION_SECRET=$(printf %q "$SESSION_SECRET"); bash ~/aistore-api/deploy-manual.sh || bash ~/public_html/deploy-manual.sh"
           else
