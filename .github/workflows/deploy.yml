@@ -409,7 +409,18 @@ jobs:
             exit 0
           fi
           python3 -c "import json;s=json.load(open('/tmp/stats.json'));print('OK total',s.get('total'));assert int(s.get('total',0))>0"
+          products_code=$(curl -sS -o /tmp/products.json -w "%{http_code}" --max-time 20 \
+            "https://www.mybait.org/aistore/api/products?page=1&limit=1&sort=pulsar")
+          if [ "$products_code" != "200" ]; then
+            echo "::error::api/products returned HTTP $products_code after publish"
+            exit 1
+          fi
+          python3 -c "import json;p=json.load(open('/tmp/products.json'));items=p.get('products',[]);print('OK products',len(items),'total',p.get('pagination',{}).get('total'));assert len(items)>0 and int(p.get('pagination',{}).get('total',0))>0"
           curl -sS --max-time 20 "https://www.mybait.org/aistore/" -o /tmp/home.html
+          if grep -q 'Erro Inesperado' /tmp/home.html; then
+            echo "::error::homepage contains generic error boundary"
+            exit 1
+          fi
           if grep -q '__BAIT_BASEPATH_PATCHED__' /tmp/home.html; then
             echo "basepath_polyfill=present"
           else
