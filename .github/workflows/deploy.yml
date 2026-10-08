@@ -240,16 +240,27 @@ jobs:
                       pass
               key_path.write_text(body if body.endswith('\n') else body + '\n')
               key_path.chmod(0o600)
-              # Detecta marker "ENCRYPTED" na chave — significa que precisa passphrase
-              key_needs_passphrase = ('ENCRYPTED' in body)
-              # Tenta validar com ssh-keygen; se falhar e a chave tem ENCRYPTED,
-              # aceita como válida desde que tenhamos o passphrase secret
+              # Detecta PKCS#1 (ENCRYPTED+DEK-Info) OU OpenSSH new (cipher no header)
+              is_pkcs_encrypted = 'ENCRYPTED' in body and 'DEK-Info' in body
+              is_openssh_encrypted = bool(re.search(
+                  r'-----BEGIN OPENSSH PRIVATE KEY-----\s*\n[^\n]*?(aes|3des|des|bf)[0-9\-]*?(ctr|cbc|cfb|ofb|ecb)',
+                  body, re.M))
+              key_needs_passphrase = is_pkcs_encrypted or is_openssh_encrypted
               if key_needs_passphrase and st['passphrase']:
                   key_ok = True
-                  print('  key requires passphrase (will use ssh-agent)')
+                  print(f'  key requires passphrase (will use ssh-agent) pkcs={is_pkcs_encrypted} openssh={is_openssh_encrypted}')
               else:
-                  key_ok = subprocess.call(['ssh-keygen', '-y', '-f', str(key_path)],
-                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0
+                  proc = subprocess.run(
+                      ['ssh-keygen', '-y', '-f', str(key_path), '-P', '""'],
+                      capture_output=True, text=True, timeout=10,
+                  )
+                  key_ok = proc.returncode == 0
+                  if not key_ok and not key_needs_passphrase:
+                      err = (proc.stderr or '').lower()
+                      if 'passphrase' in err or 'encrypted' in err or 'invalid' in err:
+                          key_needs_passphrase = True
+                          key_ok = bool(st['passphrase'])
+                          print(f'  key encrypted per ssh-keygen stderr (passphrase_set={bool(st["passphrase"])})')
               print(f'  key_ok={key_ok} bytes={key_path.stat().st_size if key_path.exists() else 0} encrypted={key_needs_passphrase}')
 
           prefer_ssh = (os.environ.get('PREFER_SSH') or 'true').lower() in ('true', '1', 'yes')
