@@ -199,14 +199,21 @@ jobs:
                   st['hosts'].append((h, label))
                   print(f'  host_candidate {label}=set')
 
-          # 1) Dedicated passphrase secret (highest priority)
+          # 1) Collect ALL passphrase candidates (try until one unlocks the key)
+          pass_candidates = []  # list of (value, source)
+          def add_pass(val, source):
+              val = (val or '').strip()
+              if not val:
+                  return
+              if any(v == val for v, _ in pass_candidates):
+                  return
+              pass_candidates.append((val, source))
+              print(f'  passphrase_candidate source={source} len={len(val)}')
+
           for envk in ('SSH_KEY_PASSPHRASE', 'SSH_PASSPHRASE', 'KEY_PASSPHRASE', 'PASSPHRASE'):
               v = (os.environ.get(envk) or '').strip()
               print(f'  secret_present {envk}={"yes" if v else "NO"}')
-              if v and not st['passphrase']:
-                  st['passphrase'] = v
-                  st['passphrase_source'] = envk
-                  print(f'  passphrase_from_secret={envk} len={len(v)}')
+              add_pass(v, envk)
 
           def parse_creds(raw, label):
               """Accept JSON, base64(JSON), KEY=VALUE lines, or YAML-ish key: value."""
@@ -299,13 +306,10 @@ jobs:
               if pw and not st['password']:
                   st['password'] = str(pw)
 
-              pp = (flat.get('ssh_passphrase') or flat.get('key_passphrase')
-                    or flat.get('ssh_key_passphrase') or flat.get('passphrase')
-                    or flat.get('SSH_KEY_PASSPHRASE') or '')
-              if pp and not st['passphrase']:
-                  st['passphrase'] = str(pp).strip()
-                  st['passphrase_source'] = f'{label}.passphrase'
-                  print(f'  passphrase_from_json={label} len={len(st["passphrase"])}')
+              for pk in ('ssh_passphrase', 'key_passphrase', 'ssh_key_passphrase',
+                         'passphrase', 'SSH_KEY_PASSPHRASE'):
+                  if flat.get(pk):
+                      add_pass(str(flat.get(pk)), f'{label}.{pk}')
 
               if flat.get('vnc_host') or flat.get('vnc_port'):
                   st['vnc_host'] = clean(flat.get('vnc_host') or '')
@@ -323,44 +327,53 @@ jobs:
           add_host(os.environ.get('HOSTGATOR_SERVER'), 'HOSTGATOR_SERVER')
           add_host(os.environ.get('FTP_HOST_S'), 'FTP_HOST')
 
-          if not st['passphrase'] and st['password']:
-              st['passphrase'] = st['password']
-              st['passphrase_source'] = 'password_as_passphrase'
-              print(f'  passphrase_from_password_fallback len={len(st["passphrase"])}')
+          # Always add FTP/cPanel password as unlock candidate (run #140: len=12 worked)
+          if st['password']:
+              add_pass(st['password'], 'password_as_passphrase')
 
           if not st['hosts'] or not st['user']:
               print('::error::host/user vazios — set CREDENCIAIS_AI_STORE or SSH_HOST+SSH_USER')
               raise SystemExit(1)
 
-          port = int(st['port'] if st['port'] not in ('21', '990', '989', '') else '22')
-          chosen = None
+          # HostGator shared SSH is often port 2222; also try 22
+          base_port = st['port'] if st['port'] not in ('21', '990', '989', '') else '22'
+          ssh_ports = []
+          for p in (base_port, '2222', '22'):
+              pi = int(p)
+              if pi not in ssh_ports:
+                  ssh_ports.append(pi)
+          chosen = None  # (host, label, ipv4, port)
           for h, label in st['hosts']:
-              try:
-                  socket.setdefaulttimeout(8)
-                  infos = socket.getaddrinfo(h, port, socket.AF_INET, socket.SOCK_STREAM)
-                  for fam, typ, proto, _, sockaddr in infos:
-                      try:
-                          s = socket.socket(fam, typ, proto)
-                          s.settimeout(8)
-                          s.connect(sockaddr)
-                          s.close()
-                          chosen = (h, label, sockaddr[0])
-                          print(f'  tcp_ok {label} → {sockaddr[0]}:{port}')
+              for port in ssh_ports:
+                  try:
+                      socket.setdefaulttimeout(6)
+                      infos = socket.getaddrinfo(h, port, socket.AF_INET, socket.SOCK_STREAM)
+                      for fam, typ, proto, _, sockaddr in infos:
+                          try:
+                              s = socket.socket(fam, typ, proto)
+                              s.settimeout(6)
+                              s.connect(sockaddr)
+                              s.close()
+                              chosen = (h, label, sockaddr[0], port)
+                              print(f'  tcp_ok {label} → {sockaddr[0]}:{port}')
+                              break
+                          except Exception as e:
+                              print(f'  tcp_fail {label} {sockaddr[0]}:{port} ({type(e).__name__})')
+                      if chosen:
                           break
-                      except Exception as e:
-                          print(f'  tcp_fail {label} {sockaddr[0]}:{port} ({type(e).__name__})')
-                  if chosen:
-                      break
-              except Exception as e:
-                  print(f'  resolve_fail {label} ({type(e).__name__}: {e})')
+                  except Exception as e:
+                      print(f'  resolve_fail {label}:{port} ({type(e).__name__})')
+              if chosen:
+                  break
 
           if not chosen:
               h, label = st['hosts'][0]
-              chosen = (h, label, h)
-              print(f'::warning::no TCP probe success — trying first host {label}')
+              chosen = (h, label, h, ssh_ports[0])
+              print(f'::warning::no TCP probe success — trying first host {label} port {ssh_ports[0]}')
 
           host = chosen[0]
-          print(f'  chosen_host={chosen[1]} ipv4_hint={chosen[2]}')
+          port = chosen[3]
+          print(f'  chosen_host={chosen[1]} ipv4_hint={chosen[2]} port={port}')
 
           key_path = pathlib.Path.home() / '.ssh_key_resolved'
           key_ok = False
@@ -393,26 +406,31 @@ jobs:
                       if 'passphrase' in err or 'encrypted' in err or 'load failed' in err:
                           key_needs_passphrase = True
 
-              if key_needs_passphrase and st['passphrase']:
-                  proc = subprocess.run(
-                      ['ssh-keygen', '-y', '-f', str(key_path), '-P', st['passphrase']],
-                      capture_output=True, text=True, timeout=10,
-                  )
-                  key_ok = proc.returncode == 0
-                  print(f'  key_unlock_ok={key_ok} source={st["passphrase_source"]}')
+              if key_needs_passphrase:
+                  if not pass_candidates:
+                      print('::error::chave encrypted sem nenhuma passphrase candidata')
+                      raise SystemExit(1)
+                  for pval, psrc in pass_candidates:
+                      proc = subprocess.run(
+                          ['ssh-keygen', '-y', '-f', str(key_path), '-P', pval],
+                          capture_output=True, text=True, timeout=10,
+                      )
+                      if proc.returncode == 0:
+                          key_ok = True
+                          st['passphrase'] = pval
+                          st['passphrase_source'] = psrc
+                          print(f'  key_unlock_ok=True source={psrc}')
+                          break
+                      print(f'  key_unlock_fail source={psrc}')
                   if not key_ok:
-                      print(f'  unlock_stderr={(proc.stderr or "")[:240]}')
-              elif not key_needs_passphrase:
+                      print('::warning::nenhuma passphrase candidata desbloqueou a chave')
+              else:
                   proc = subprocess.run(
                       ['ssh-keygen', '-y', '-f', str(key_path), '-P', ''],
                       capture_output=True, text=True, timeout=10,
                   )
                   key_ok = proc.returncode == 0
               print(f'  key_ok={key_ok} encrypted={key_needs_passphrase} source={st["passphrase_source"]}')
-
-              if key and key_needs_passphrase and not st['passphrase']:
-                  print('::error::chave encrypted sem passphrase — confira SSH_KEY_PASSPHRASE')
-                  raise SystemExit(1)
 
           prefer_ssh = (os.environ.get('PREFER_SSH') or 'true').lower() in ('true', '1', 'yes')
           password = st['password']
