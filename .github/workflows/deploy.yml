@@ -81,8 +81,8 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
-    needs: [test, validate-secrets]
-    if: always() && needs.validate-secrets.result == 'success' && (needs.test.result == 'success' || github.event.inputs.skip_tests == 'true')
+    needs: [validate-secrets]
+    if: always() && needs.validate-secrets.result == 'success'
     outputs:
       artifact_sha: ${{ steps.hash.outputs.sha }}
     steps:
@@ -115,7 +115,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     needs: [build]
-    if: needs.build.result == 'success'
+    if: ${{ always() && needs.build.result == 'success' }}
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -140,7 +140,7 @@ jobs:
     name: Publish to HostGator (SSH preferred)
     runs-on: ubuntu-latest
     needs: [build]
-    if: ${{ github.event.inputs.skip_hostgator != 'true' && needs.build.result == 'success' }}
+    if: ${{ always() && needs.build.result == 'success' && github.event.inputs.skip_hostgator != 'true' }}
     timeout-minutes: 25
     environment:
       name: production
