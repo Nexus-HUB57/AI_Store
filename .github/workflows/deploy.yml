@@ -50,6 +50,7 @@ jobs:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USER: ${{ secrets.SSH_USER }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KEY_PASSPHRASE: ${{ secrets.SSH_KEY_PASSPHRASE }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
@@ -57,6 +58,9 @@ jobs:
           CREDENCIAIS_PLATAFORMA_BAIT: ${{ secrets.CREDENCIAIS_PLATAFORMA_BAIT }}
         run: |
           node scripts/validate-ci-env.mjs deploy
+          if [ -n "${SSH_PRIVATE_KEY:-}" ] && [ -z "${SSH_KEY_PASSPHRASE:-}" ]; then
+            echo "::notice::SSH_PRIVATE_KEY presente. Se a chave for encrypted, setar também SSH_KEY_PASSPHRASE."
+          fi
           echo "::notice::Prefer SSH (SSH_PRIVATE_KEY + port 22). FTP from GHA often times out on HostGator:21"
 
   test:
@@ -152,7 +156,6 @@ jobs:
           SSH_PORT_S: ${{ secrets.SSH_PORT }}
           SSH_USER_S: ${{ secrets.SSH_USER }}
           SSH_KEY_S: ${{ secrets.SSH_PRIVATE_KEY }}
-          # Passphrase aliases (in priority order)
           SSH_KEY_PASSPHRASE: ${{ secrets.SSH_KEY_PASSPHRASE }}
           SSH_PASSPHRASE: ${{ secrets.SSH_PASSPHRASE }}
           KEY_PASSPHRASE: ${{ secrets.KEY_PASSPHRASE }}
@@ -182,7 +185,6 @@ jobs:
               'password': '',
           }
 
-          # Pick passphrase from any of the alias secrets
           for envk in ('SSH_KEY_PASSPHRASE', 'SSH_PASSPHRASE', 'KEY_PASSPHRASE', 'PASSPHRASE'):
               v = (os.environ.get(envk) or '').strip()
               if v:
@@ -206,7 +208,6 @@ jobs:
               print(f'  {label}: keys={sorted(c.keys())}')
               st['host'] = st['host'] or clean(c.get('host') or c.get('ssh_host') or c.get('hostname') or c.get('ip') or c.get('ftp_host'))
               st['user'] = st['user'] or clean(c.get('user') or c.get('ssh_user') or c.get('username') or c.get('ftp_user'))
-              # Prefer ssh_port over generic port (generic often is FTP 21)
               p = c.get('ssh_port') or c.get('port') or c.get('ftp_port')
               if p is not None and str(p).strip():
                   st['port'] = clean(str(p))
@@ -240,7 +241,6 @@ jobs:
                       pass
               key_path.write_text(body if body.endswith('\n') else body + '\n')
               key_path.chmod(0o600)
-              # Detecta PKCS#1 (ENCRYPTED+DEK-Info) OU OpenSSH new (cipher no header)
               is_pkcs_encrypted = 'ENCRYPTED' in body and 'DEK-Info' in body
               is_openssh_encrypted = bool(re.search(
                   r'-----BEGIN OPENSSH PRIVATE KEY-----\s*\n[^\n]*?(aes|3des|des|bf)[0-9\-]*?(ctr|cbc|cfb|ofb|ecb)',
@@ -251,21 +251,32 @@ jobs:
                   print(f'  key requires passphrase (will use ssh-agent) pkcs={is_pkcs_encrypted} openssh={is_openssh_encrypted}')
               else:
                   proc = subprocess.run(
-                      ['ssh-keygen', '-y', '-f', str(key_path), '-P', '""'],
+                      ['ssh-keygen', '-y', '-f', str(key_path), '-P', ''],
                       capture_output=True, text=True, timeout=10,
                   )
                   key_ok = proc.returncode == 0
                   if not key_ok and not key_needs_passphrase:
                       err = (proc.stderr or '').lower()
-                      if 'passphrase' in err or 'encrypted' in err or 'invalid' in err:
+                      if 'passphrase' in err or 'encrypted' in err or 'invalid format' in err or 'load failed' in err:
                           key_needs_passphrase = True
                           key_ok = bool(st['passphrase'])
                           print(f'  key encrypted per ssh-keygen stderr (passphrase_set={bool(st["passphrase"])})')
               print(f'  key_ok={key_ok} bytes={key_path.stat().st_size if key_path.exists() else 0} encrypted={key_needs_passphrase}')
 
+              # FAIL-FAST: chave existe mas está locked e não temos passphrase
+              if key and key_needs_passphrase and not st['passphrase']:
+                  print('::error::SSH_PRIVATE_KEY está ENCRYPTED/locked e nenhum secret de passphrase foi encontrado.')
+                  print('::error::Ação necessária (escolha UMA):')
+                  print('::error::  A) Settings → Secrets → Actions → New secret: SSH_KEY_PASSPHRASE = <passphrase da chave>')
+                  print('::error::  B) Regenerar chave SEM passphrase e atualizar SSH_PRIVATE_KEY:')
+                  print("::error::     ssh-keygen -t ed25519 -N '' -f ~/.ssh/aistore_gha")
+                  print('::error::     cat ~/.ssh/aistore_gha  # colar no secret SSH_PRIVATE_KEY')
+                  print('::error::     ssh-copy-id -i ~/.ssh/aistore_gha.pub USER@HOST')
+                  print('::error::NÃO vamos cair em FTP (timeout garantido no HostGator a partir do GHA).')
+                  raise SystemExit(1)
+
           prefer_ssh = (os.environ.get('PREFER_SSH') or 'true').lower() in ('true', '1', 'yes')
 
-          # SSH wins whenever key parses — never SSH on port 21
           if key_ok and prefer_ssh:
               mode = 'ssh'
               if not port or port in ('21', '990', '989'):
@@ -275,12 +286,13 @@ jobs:
           elif key_ok:
               mode = 'ssh'
               port = port if port and port not in ('21', '990', '989') else '22'
-          elif password:
+          elif password and not key:
+              # FTP só se NÃO houver chave nenhuma
               mode = 'ftp'
               port = port if port in ('21', '990', '989') else '21'
-              print('::warning::No valid SSH key — FTP fallback (may timeout from GHA)')
+              print('::warning::No SSH key at all — FTP fallback (may timeout from GHA)')
           else:
-              print('::error::Need SSH_PRIVATE_KEY (PEM) or FTP password in CREDENCIAIS_*')
+              print('::error::Need valid SSH_PRIVATE_KEY (PEM, ideally without passphrase) or FTP password in CREDENCIAIS_*')
               raise SystemExit(1)
 
           with open(os.environ['GITHUB_ENV'], 'a') as f:
@@ -304,7 +316,6 @@ jobs:
           set -e
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           cp "$HOME/.ssh_key_resolved" ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
-          # Se a chave precisa de passphrase, carrega via ssh-agent com SSH_ASKPASS
           if [ "${HG_NEED_AGENT:-0}" = "1" ]; then
             eval "$(ssh-agent -s)"
             echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> $GITHUB_ENV
@@ -341,7 +352,6 @@ jobs:
           set -e
           if [ "${HG_NEED_AGENT:-0}" = "1" ]; then
             eval "$(ssh-agent -s)"
-            SSH_AUTH_SOCK=$SSH_AUTH_SOCK SSH_AGENT_PID=$SSH_AGENT_PID
             export SSH_AUTH_SOCK SSH_AGENT_PID
             printf '%s\n' '#!/bin/sh' 'cat $HOME/.ssh_passphrase' > /tmp/askpass.sh
             chmod 700 /tmp/askpass.sh
@@ -349,7 +359,6 @@ jobs:
               ssh-add "$HOME/.ssh_key_resolved"
           fi
           if [ "${HG_NEED_AGENT:-0}" = "1" ]; then
-            # scp não suporta ssh-agent forward sem mais setup — usa cat+ssh
             gzip -c aistore-standalone.tar.gz | ssh deploy-target \
               'gunzip > ~/public_html/aistore-codebase.tar.gz'
           else
@@ -435,3 +444,5 @@ jobs:
           echo "- mode: \`${{ steps.creds.outputs.mode }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- smoke: \`${{ steps.smoke.outputs.api_ok }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Se mode=ftp ou job falhou com passphrase: setar secret **SSH_KEY_PASSPHRASE** e re-rodar." >> $GITHUB_STEP_SUMMARY
