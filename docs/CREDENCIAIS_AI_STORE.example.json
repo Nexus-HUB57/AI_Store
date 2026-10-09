@@ -1,0 +1,12 @@
+{
+  "host": "gatorXXXX.hostgator.com",
+  "user": "usuario_cpanel",
+  "ssh_port": 22,
+  "ftp_host": "ftp.mybait.org",
+  "ftp_user": "usuario_cpanel",
+  "ftp_pass": "SENHA_FTP_OU_CPANEL",
+  "password": "SENHA_FTP_OU_CPANEL",
+  "ssh_passphrase": "PASSPHRASE_DA_CHAVE_SSH",
+  "vnc_host": "",
+  "vnc_port": 5900
+}
