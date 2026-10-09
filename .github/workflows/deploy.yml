@@ -51,6 +51,9 @@ jobs:
           SSH_USER: ${{ secrets.SSH_USER }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           SSH_KEY_PASSPHRASE: ${{ secrets.SSH_KEY_PASSPHRASE }}
+          SSH_PASSPHRASE: ${{ secrets.SSH_PASSPHRASE }}
+          KEY_PASSPHRASE: ${{ secrets.KEY_PASSPHRASE }}
+          PASSPHRASE: ${{ secrets.PASSPHRASE }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
@@ -58,10 +61,13 @@ jobs:
           CREDENCIAIS_PLATAFORMA_BAIT: ${{ secrets.CREDENCIAIS_PLATAFORMA_BAIT }}
         run: |
           node scripts/validate-ci-env.mjs deploy
-          if [ -n "${SSH_PRIVATE_KEY:-}" ] && [ -z "${SSH_KEY_PASSPHRASE:-}" ]; then
-            echo "::notice::SSH_PRIVATE_KEY presente. Se a chave for encrypted, setar também SSH_KEY_PASSPHRASE."
-          fi
-          echo "::notice::Prefer SSH (SSH_PRIVATE_KEY + port 22). FTP from GHA often times out on HostGator:21"
+          echo "::notice::passphrase secrets present (boolean):"
+          echo "  SSH_KEY_PASSPHRASE=$([ -n \"${SSH_KEY_PASSPHRASE:-}\" ] && echo yes || echo NO)"
+          echo "  SSH_PASSPHRASE=$([ -n \"${SSH_PASSPHRASE:-}\" ] && echo yes || echo NO)"
+          echo "  KEY_PASSPHRASE=$([ -n \"${KEY_PASSPHRASE:-}\" ] && echo yes || echo NO)"
+          echo "  PASSPHRASE=$([ -n \"${PASSPHRASE:-}\" ] && echo yes || echo NO)"
+          echo "  CREDENCIAIS_HOSTGATOR=$([ -n \"${CREDENCIAIS_HOSTGATOR:-}\" ] && echo yes || echo NO)"
+          echo "::notice::Prefer SSH. Passphrase will also be read from CREDENCIAIS JSON / password fallback."
 
   test:
     runs-on: ubuntu-latest
@@ -140,6 +146,8 @@ jobs:
     needs: [build]
     if: ${{ github.event.inputs.skip_hostgator != 'true' && needs.build.result == 'success' }}
     timeout-minutes: 25
+    # NOTE: environment secrets override repo secrets of the same name.
+    # SSH_KEY_PASSPHRASE must exist at repo level OR under Environment "production".
     environment:
       name: production
       url: https://www.mybait.org/aistore/
@@ -156,10 +164,13 @@ jobs:
           SSH_PORT_S: ${{ secrets.SSH_PORT }}
           SSH_USER_S: ${{ secrets.SSH_USER }}
           SSH_KEY_S: ${{ secrets.SSH_PRIVATE_KEY }}
+          # Passphrase — repo + environment + aliases (retransmit)
           SSH_KEY_PASSPHRASE: ${{ secrets.SSH_KEY_PASSPHRASE }}
           SSH_PASSPHRASE: ${{ secrets.SSH_PASSPHRASE }}
           KEY_PASSPHRASE: ${{ secrets.KEY_PASSPHRASE }}
           PASSPHRASE: ${{ secrets.PASSPHRASE }}
+          DEPLOY_SSH_PASSPHRASE: ${{ secrets.DEPLOY_SSH_PASSPHRASE }}
+          HG_SSH_PASSPHRASE: ${{ secrets.HG_SSH_PASSPHRASE }}
           VPS_HOST_S: ${{ secrets.VPS_HOST }}
           VPS_PORT_S: ${{ secrets.VPS_PORT }}
           VPS_USER_S: ${{ secrets.VPS_USER }}
@@ -183,16 +194,20 @@ jobs:
               'key': (os.environ.get('SSH_KEY_S') or os.environ.get('VPS_KEY_S') or '').strip(),
               'passphrase': '',
               'password': '',
+              'passphrase_source': 'none',
           }
 
-          for envk in ('SSH_KEY_PASSPHRASE', 'SSH_PASSPHRASE', 'KEY_PASSPHRASE', 'PASSPHRASE'):
+          # 1) Explicit passphrase secrets (priority order)
+          for envk in (
+              'SSH_KEY_PASSPHRASE', 'SSH_PASSPHRASE', 'KEY_PASSPHRASE',
+              'PASSPHRASE', 'DEPLOY_SSH_PASSPHRASE', 'HG_SSH_PASSPHRASE',
+          ):
               v = (os.environ.get(envk) or '').strip()
-              if v:
+              print(f'  secret_present {envk}={"yes" if v else "NO"}')
+              if v and not st['passphrase']:
                   st['passphrase'] = v
+                  st['passphrase_source'] = envk
                   print(f'  passphrase_from_secret={envk} len={len(v)}')
-                  break
-          else:
-              print('  passphrase_from_secret=NONE (all aliases empty)')
 
           def merge_json(raw, label):
               if not raw or not str(raw).strip():
@@ -217,9 +232,25 @@ jobs:
               pw = c.get('password') or c.get('pass') or c.get('ftp_pass') or c.get('ftp_password') or ''
               if pw and not st['password']:
                   st['password'] = str(pw)
+              # Retransmit passphrase fields from JSON credentials
+              pp = (
+                  c.get('ssh_passphrase') or c.get('key_passphrase') or
+                  c.get('ssh_key_passphrase') or c.get('passphrase') or
+                  c.get('SSH_KEY_PASSPHRASE') or ''
+              )
+              if pp and not st['passphrase']:
+                  st['passphrase'] = str(pp).strip()
+                  st['passphrase_source'] = f'{label}.passphrase'
+                  print(f'  passphrase_from_json={label} len={len(st["passphrase"])}')
 
           merge_json(os.environ.get('CREDS_PLATAFORMA'), 'CREDENCIAIS_PLATAFORMA_BAIT')
           merge_json(os.environ.get('CREDS_HOSTGATOR'), 'CREDENCIAIS_HOSTGATOR')
+
+          # 2) Fallback: HostGator password often doubles as key passphrase
+          if not st['passphrase'] and st['password']:
+              st['passphrase'] = st['password']
+              st['passphrase_source'] = 'CREDENCIAIS.password_as_passphrase'
+              print(f'  passphrase_from_password_fallback len={len(st["passphrase"])}')
 
           host, port, user = st['host'], st['port'], st['user']
           key, password = st['key'], st['password']
@@ -248,7 +279,7 @@ jobs:
               key_needs_passphrase = is_pkcs_encrypted or is_openssh_encrypted
               if key_needs_passphrase and st['passphrase']:
                   key_ok = True
-                  print(f'  key requires passphrase (will use ssh-agent) pkcs={is_pkcs_encrypted} openssh={is_openssh_encrypted}')
+                  print(f'  key requires passphrase (will use ssh-agent) pkcs={is_pkcs_encrypted} openssh={is_openssh_encrypted} source={st["passphrase_source"]}')
               else:
                   proc = subprocess.run(
                       ['ssh-keygen', '-y', '-f', str(key_path), '-P', ''],
@@ -260,19 +291,14 @@ jobs:
                       if 'passphrase' in err or 'encrypted' in err or 'invalid format' in err or 'load failed' in err:
                           key_needs_passphrase = True
                           key_ok = bool(st['passphrase'])
-                          print(f'  key encrypted per ssh-keygen stderr (passphrase_set={bool(st["passphrase"])})')
-              print(f'  key_ok={key_ok} bytes={key_path.stat().st_size if key_path.exists() else 0} encrypted={key_needs_passphrase}')
+                          print(f'  key encrypted per ssh-keygen stderr (passphrase_set={bool(st["passphrase"])} source={st["passphrase_source"]})')
+              print(f'  key_ok={key_ok} bytes={key_path.stat().st_size if key_path.exists() else 0} encrypted={key_needs_passphrase} passphrase_source={st["passphrase_source"]}')
 
-              # FAIL-FAST: chave existe mas está locked e não temos passphrase
               if key and key_needs_passphrase and not st['passphrase']:
-                  print('::error::SSH_PRIVATE_KEY está ENCRYPTED/locked e nenhum secret de passphrase foi encontrado.')
-                  print('::error::Ação necessária (escolha UMA):')
-                  print('::error::  A) Settings → Secrets → Actions → New secret: SSH_KEY_PASSPHRASE = <passphrase da chave>')
-                  print('::error::  B) Regenerar chave SEM passphrase e atualizar SSH_PRIVATE_KEY:')
-                  print("::error::     ssh-keygen -t ed25519 -N '' -f ~/.ssh/aistore_gha")
-                  print('::error::     cat ~/.ssh/aistore_gha  # colar no secret SSH_PRIVATE_KEY')
-                  print('::error::     ssh-copy-id -i ~/.ssh/aistore_gha.pub USER@HOST')
-                  print('::error::NÃO vamos cair em FTP (timeout garantido no HostGator a partir do GHA).')
+                  print('::error::SSH_PRIVATE_KEY ENCRYPTED e nenhuma passphrase chegou ao job.')
+                  print('::error::Verifique: Settings → Environments → production → Secrets')
+                  print('::error::  e/ou Settings → Secrets → Actions → SSH_KEY_PASSPHRASE')
+                  print('::error::Environment secrets sobrescrevem repo secrets do mesmo nome (mesmo se vazios).')
                   raise SystemExit(1)
 
           prefer_ssh = (os.environ.get('PREFER_SSH') or 'true').lower() in ('true', '1', 'yes')
@@ -287,12 +313,11 @@ jobs:
               mode = 'ssh'
               port = port if port and port not in ('21', '990', '989') else '22'
           elif password and not key:
-              # FTP só se NÃO houver chave nenhuma
               mode = 'ftp'
               port = port if port in ('21', '990', '989') else '21'
               print('::warning::No SSH key at all — FTP fallback (may timeout from GHA)')
           else:
-              print('::error::Need valid SSH_PRIVATE_KEY (PEM, ideally without passphrase) or FTP password in CREDENCIAIS_*')
+              print('::error::Need valid SSH_PRIVATE_KEY or FTP password in CREDENCIAIS_*')
               raise SystemExit(1)
 
           with open(os.environ['GITHUB_ENV'], 'a') as f:
@@ -305,9 +330,10 @@ jobs:
               if mode == 'ssh' and key_needs_passphrase and st['passphrase']:
                   ppf = pathlib.Path.home() / '.ssh_passphrase'
                   ppf.write_text(st['passphrase']); ppf.chmod(0o600)
-          print(f'  resolved mode={mode} host={host} port={port} user={user}')
+          print(f'  resolved mode={mode} host={host} port={port} user={user} passphrase_source={st["passphrase_source"]}')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as o:
               o.write(f'mode={mode}\n')
+              o.write(f'passphrase_source={st["passphrase_source"]}\n')
           PY
 
       - name: Setup SSH + probe
@@ -324,7 +350,7 @@ jobs:
             chmod 700 /tmp/askpass.sh
             DISPLAY= SSH_ASKPASS=/tmp/askpass.sh SSH_ASKPASS_REQUIRE=force \
               ssh-add "$HOME/.ssh_key_resolved"
-            echo "  ssh-agent loaded encrypted key"
+            echo "  ssh-agent loaded encrypted key (source=${{ steps.creds.outputs.passphrase_source }})"
           fi
           {
             echo "Host deploy-target"
@@ -442,7 +468,6 @@ jobs:
         run: |
           echo "### Deploy AI Store" >> $GITHUB_STEP_SUMMARY
           echo "- mode: \`${{ steps.creds.outputs.mode }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- passphrase_source: \`${{ steps.creds.outputs.passphrase_source }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- smoke: \`${{ steps.smoke.outputs.api_ok }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Se mode=ftp ou job falhou com passphrase: setar secret **SSH_KEY_PASSPHRASE** e re-rodar." >> $GITHUB_STEP_SUMMARY
