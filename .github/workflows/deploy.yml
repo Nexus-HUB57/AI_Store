@@ -50,24 +50,16 @@ jobs:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USER: ${{ secrets.SSH_USER }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          SSH_KEY_PASSPHRASE: ${{ secrets.SSH_KEY_PASSPHRASE }}
-          SSH_PASSPHRASE: ${{ secrets.SSH_PASSPHRASE }}
-          KEY_PASSPHRASE: ${{ secrets.KEY_PASSPHRASE }}
-          PASSPHRASE: ${{ secrets.PASSPHRASE }}
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          HOSTGATOR_SHARED_IP: ${{ secrets.HOSTGATOR_SHARED_IP }}
+          HOSTGATOR_SERVER: ${{ secrets.HOSTGATOR_SERVER }}
+          FTP_HOST: ${{ secrets.FTP_HOST }}
           CREDENCIAIS_HOSTGATOR: ${{ secrets.CREDENCIAIS_HOSTGATOR }}
-          CREDENCIAIS_PLATAFORMA_BAIT: ${{ secrets.CREDENCIAIS_PLATAFORMA_BAIT }}
         run: |
           node scripts/validate-ci-env.mjs deploy
-          echo "::notice::passphrase secrets present (boolean):"
-          echo "  SSH_KEY_PASSPHRASE=$([ -n \"${SSH_KEY_PASSPHRASE:-}\" ] && echo yes || echo NO)"
-          echo "  SSH_PASSPHRASE=$([ -n \"${SSH_PASSPHRASE:-}\" ] && echo yes || echo NO)"
-          echo "  KEY_PASSPHRASE=$([ -n \"${KEY_PASSPHRASE:-}\" ] && echo yes || echo NO)"
-          echo "  PASSPHRASE=$([ -n \"${PASSPHRASE:-}\" ] && echo yes || echo NO)"
-          echo "  CREDENCIAIS_HOSTGATOR=$([ -n \"${CREDENCIAIS_HOSTGATOR:-}\" ] && echo yes || echo NO)"
-          echo "::notice::Prefer SSH. Passphrase will also be read from CREDENCIAIS JSON / password fallback."
+          echo "::notice::SSH key present=$([ -n \"${SSH_PRIVATE_KEY:-}\" ] && echo yes || echo NO)"
+          echo "::notice::hosts: SSH_HOST=$([ -n \"${SSH_HOST:-}\" ] && echo yes || echo NO) SHARED_IP=$([ -n \"${HOSTGATOR_SHARED_IP:-}\" ] && echo yes || echo NO) SERVER=$([ -n \"${HOSTGATOR_SERVER:-}\" ] && echo yes || echo NO)"
+          echo "::notice::CREDENCIAIS_HOSTGATOR=$([ -n \"${CREDENCIAIS_HOSTGATOR:-}\" ] && echo yes || echo NO)"
 
   test:
     runs-on: ubuntu-latest
@@ -146,8 +138,6 @@ jobs:
     needs: [build]
     if: ${{ github.event.inputs.skip_hostgator != 'true' && needs.build.result == 'success' }}
     timeout-minutes: 25
-    # NOTE: environment secrets override repo secrets of the same name.
-    # SSH_KEY_PASSPHRASE must exist at repo level OR under Environment "production".
     environment:
       name: production
       url: https://www.mybait.org/aistore/
@@ -164,50 +154,51 @@ jobs:
           SSH_PORT_S: ${{ secrets.SSH_PORT }}
           SSH_USER_S: ${{ secrets.SSH_USER }}
           SSH_KEY_S: ${{ secrets.SSH_PRIVATE_KEY }}
-          # Passphrase — repo + environment + aliases (retransmit)
           SSH_KEY_PASSPHRASE: ${{ secrets.SSH_KEY_PASSPHRASE }}
           SSH_PASSPHRASE: ${{ secrets.SSH_PASSPHRASE }}
           KEY_PASSPHRASE: ${{ secrets.KEY_PASSPHRASE }}
           PASSPHRASE: ${{ secrets.PASSPHRASE }}
-          DEPLOY_SSH_PASSPHRASE: ${{ secrets.DEPLOY_SSH_PASSPHRASE }}
-          HG_SSH_PASSPHRASE: ${{ secrets.HG_SSH_PASSPHRASE }}
-          VPS_HOST_S: ${{ secrets.VPS_HOST }}
-          VPS_PORT_S: ${{ secrets.VPS_PORT }}
-          VPS_USER_S: ${{ secrets.VPS_USER }}
-          VPS_KEY_S: ${{ secrets.VPS_SSH_KEY }}
+          HOSTGATOR_SHARED_IP: ${{ secrets.HOSTGATOR_SHARED_IP }}
+          HOSTGATOR_SERVER: ${{ secrets.HOSTGATOR_SERVER }}
+          FTP_HOST_S: ${{ secrets.FTP_HOST }}
+          FTP_PORT_S: ${{ secrets.FTP_PORT }}
+          FTP_USER_S: ${{ secrets.FTP_USER }}
+          FTP_PASS_S: ${{ secrets.FTP_PASS }}
           CREDS_PLATAFORMA: ${{ secrets.CREDENCIAIS_PLATAFORMA_BAIT }}
           CREDS_HOSTGATOR: ${{ secrets.CREDENCIAIS_HOSTGATOR }}
           PREFER_SSH: ${{ github.event.inputs.prefer_ssh || 'true' }}
         run: |
           set -e
           python3 << 'PY'
-          import os, json, re, pathlib, base64, subprocess
+          import os, json, re, pathlib, base64, subprocess, socket
 
           def clean(s):
               if s is None: return ''
               return re.sub(r'[\r\n\t "\']', '', str(s)).strip()
 
           st = {
-              'host': clean(os.environ.get('SSH_HOST_S') or os.environ.get('VPS_HOST_S')),
-              'port': clean(os.environ.get('SSH_PORT_S') or os.environ.get('VPS_PORT_S')),
-              'user': clean(os.environ.get('SSH_USER_S') or os.environ.get('VPS_USER_S')),
-              'key': (os.environ.get('SSH_KEY_S') or os.environ.get('VPS_KEY_S') or '').strip(),
+              'hosts': [],
+              'port': clean(os.environ.get('SSH_PORT_S') or '22') or '22',
+              'user': clean(os.environ.get('SSH_USER_S') or os.environ.get('FTP_USER_S')),
+              'key': (os.environ.get('SSH_KEY_S') or '').strip(),
               'passphrase': '',
-              'password': '',
+              'password': (os.environ.get('FTP_PASS_S') or '').strip(),
               'passphrase_source': 'none',
           }
 
-          # 1) Explicit passphrase secrets (priority order)
-          for envk in (
-              'SSH_KEY_PASSPHRASE', 'SSH_PASSPHRASE', 'KEY_PASSPHRASE',
-              'PASSPHRASE', 'DEPLOY_SSH_PASSPHRASE', 'HG_SSH_PASSPHRASE',
-          ):
+          def add_host(h, label):
+              h = clean(h)
+              if h and h not in [x[0] for x in st['hosts']]:
+                  st['hosts'].append((h, label))
+                  print(f'  host_candidate {label}={h[:3]}***' if len(h)>6 else f'  host_candidate {label}=set')
+
+          # Passphrase secrets
+          for envk in ('SSH_KEY_PASSPHRASE','SSH_PASSPHRASE','KEY_PASSPHRASE','PASSPHRASE'):
               v = (os.environ.get(envk) or '').strip()
               print(f'  secret_present {envk}={"yes" if v else "NO"}')
               if v and not st['passphrase']:
                   st['passphrase'] = v
                   st['passphrase_source'] = envk
-                  print(f'  passphrase_from_secret={envk} len={len(v)}')
 
           def merge_json(raw, label):
               if not raw or not str(raw).strip():
@@ -221,10 +212,11 @@ jobs:
                   print(f'  {label}: not JSON ({e})'); return
               if not isinstance(c, dict): return
               print(f'  {label}: keys={sorted(c.keys())}')
-              st['host'] = st['host'] or clean(c.get('host') or c.get('ssh_host') or c.get('hostname') or c.get('ip') or c.get('ftp_host'))
+              for k in ('host','ssh_host','hostname','ip','ftp_host','server'):
+                  if c.get(k): add_host(c.get(k), f'{label}.{k}')
               st['user'] = st['user'] or clean(c.get('user') or c.get('ssh_user') or c.get('username') or c.get('ftp_user'))
-              p = c.get('ssh_port') or c.get('port') or c.get('ftp_port')
-              if p is not None and str(p).strip():
+              p = c.get('ssh_port') or c.get('port')
+              if p is not None and str(p).strip() and clean(str(p)) not in ('21','990','989'):
                   st['port'] = clean(str(p))
               k = c.get('private_key') or c.get('ssh_key') or c.get('ssh_private_key') or c.get('key') or ''
               if k and not st['key']:
@@ -232,35 +224,65 @@ jobs:
               pw = c.get('password') or c.get('pass') or c.get('ftp_pass') or c.get('ftp_password') or ''
               if pw and not st['password']:
                   st['password'] = str(pw)
-              # Retransmit passphrase fields from JSON credentials
-              pp = (
-                  c.get('ssh_passphrase') or c.get('key_passphrase') or
-                  c.get('ssh_key_passphrase') or c.get('passphrase') or
-                  c.get('SSH_KEY_PASSPHRASE') or ''
-              )
+              pp = c.get('ssh_passphrase') or c.get('key_passphrase') or c.get('passphrase') or ''
               if pp and not st['passphrase']:
                   st['passphrase'] = str(pp).strip()
                   st['passphrase_source'] = f'{label}.passphrase'
-                  print(f'  passphrase_from_json={label} len={len(st["passphrase"])}')
 
+          # Host priority: explicit SSH → shared IP → server hostname → FTP → JSON
+          add_host(os.environ.get('SSH_HOST_S'), 'SSH_HOST')
+          add_host(os.environ.get('HOSTGATOR_SHARED_IP'), 'HOSTGATOR_SHARED_IP')
+          add_host(os.environ.get('HOSTGATOR_SERVER'), 'HOSTGATOR_SERVER')
+          add_host(os.environ.get('FTP_HOST_S'), 'FTP_HOST')
           merge_json(os.environ.get('CREDS_PLATAFORMA'), 'CREDENCIAIS_PLATAFORMA_BAIT')
           merge_json(os.environ.get('CREDS_HOSTGATOR'), 'CREDENCIAIS_HOSTGATOR')
 
-          # 2) Fallback: HostGator password often doubles as key passphrase
           if not st['passphrase'] and st['password']:
               st['passphrase'] = st['password']
-              st['passphrase_source'] = 'CREDENCIAIS.password_as_passphrase'
+              st['passphrase_source'] = 'password_as_passphrase'
               print(f'  passphrase_from_password_fallback len={len(st["passphrase"])}')
 
-          host, port, user = st['host'], st['port'], st['user']
-          key, password = st['key'], st['password']
-          if not host or not user:
-              print('::error::host/user vazios — set SSH_HOST+SSH_USER or CREDENCIAIS_*')
+          if not st['hosts'] or not st['user']:
+              print('::error::host/user vazios')
               raise SystemExit(1)
+
+          # TCP probe — pick first reachable host:port (IPv4)
+          port = int(st['port'] if st['port'] not in ('21','990','989','') else '22')
+          chosen = None
+          for h, label in st['hosts']:
+              try:
+                  socket.setdefaulttimeout(8)
+                  # Force IPv4 resolution
+                  infos = socket.getaddrinfo(h, port, socket.AF_INET, socket.SOCK_STREAM)
+                  for fam, typ, proto, _, sockaddr in infos:
+                      try:
+                          s = socket.socket(fam, typ, proto)
+                          s.settimeout(8)
+                          s.connect(sockaddr)
+                          s.close()
+                          chosen = (h, label, sockaddr[0])
+                          print(f'  tcp_ok {label} → {sockaddr[0]}:{port}')
+                          break
+                      except Exception as e:
+                          print(f'  tcp_fail {label} {sockaddr[0]}:{port} ({e})')
+                  if chosen:
+                      break
+              except Exception as e:
+                  print(f'  resolve_fail {label} ({e})')
+
+          if not chosen:
+              # Still pick first host — SSH may work where TCP probe failed
+              h, label = st['hosts'][0]
+              chosen = (h, label, h)
+              print(f'::warning::no TCP probe success — trying first host {label}')
+
+          host = chosen[0]
+          print(f'  chosen_host={chosen[1]} ipv4_hint={chosen[2]}')
 
           key_path = pathlib.Path.home() / '.ssh_key_resolved'
           key_ok = False
           key_needs_passphrase = False
+          key = st['key']
           if key:
               body = key.replace('\\n', '\n')
               if 'BEGIN' not in body:
@@ -272,57 +294,52 @@ jobs:
                       pass
               key_path.write_text(body if body.endswith('\n') else body + '\n')
               key_path.chmod(0o600)
-              is_pkcs_encrypted = 'ENCRYPTED' in body and 'DEK-Info' in body
-              is_openssh_encrypted = bool(re.search(
+              is_pkcs = 'ENCRYPTED' in body and 'DEK-Info' in body
+              is_openssh = bool(re.search(
                   r'-----BEGIN OPENSSH PRIVATE KEY-----\s*\n[^\n]*?(aes|3des|des|bf)[0-9\-]*?(ctr|cbc|cfb|ofb|ecb)',
                   body, re.M))
-              key_needs_passphrase = is_pkcs_encrypted or is_openssh_encrypted
+              key_needs_passphrase = is_pkcs or is_openssh
               if key_needs_passphrase and st['passphrase']:
-                  key_ok = True
-                  print(f'  key requires passphrase (will use ssh-agent) pkcs={is_pkcs_encrypted} openssh={is_openssh_encrypted} source={st["passphrase_source"]}')
+                  # Validate passphrase actually unlocks the key
+                  proc = subprocess.run(
+                      ['ssh-keygen', '-y', '-f', str(key_path), '-P', st['passphrase']],
+                      capture_output=True, text=True, timeout=10,
+                  )
+                  key_ok = proc.returncode == 0
+                  print(f'  key_unlock_ok={key_ok} (ssh-keygen -y with passphrase)')
+                  if not key_ok:
+                      print(f'  unlock_stderr={(proc.stderr or "")[:200]}')
               else:
                   proc = subprocess.run(
                       ['ssh-keygen', '-y', '-f', str(key_path), '-P', ''],
                       capture_output=True, text=True, timeout=10,
                   )
                   key_ok = proc.returncode == 0
-                  if not key_ok and not key_needs_passphrase:
+                  if not key_ok:
                       err = (proc.stderr or '').lower()
-                      if 'passphrase' in err or 'encrypted' in err or 'invalid format' in err or 'load failed' in err:
+                      if 'passphrase' in err or 'encrypted' in err:
                           key_needs_passphrase = True
                           key_ok = bool(st['passphrase'])
-                          print(f'  key encrypted per ssh-keygen stderr (passphrase_set={bool(st["passphrase"])} source={st["passphrase_source"]})')
-              print(f'  key_ok={key_ok} bytes={key_path.stat().st_size if key_path.exists() else 0} encrypted={key_needs_passphrase} passphrase_source={st["passphrase_source"]}')
-
-              if key and key_needs_passphrase and not st['passphrase']:
-                  print('::error::SSH_PRIVATE_KEY ENCRYPTED e nenhuma passphrase chegou ao job.')
-                  print('::error::Verifique: Settings → Environments → production → Secrets')
-                  print('::error::  e/ou Settings → Secrets → Actions → SSH_KEY_PASSPHRASE')
-                  print('::error::Environment secrets sobrescrevem repo secrets do mesmo nome (mesmo se vazios).')
-                  raise SystemExit(1)
+              print(f'  key_ok={key_ok} encrypted={key_needs_passphrase} source={st["passphrase_source"]}')
 
           prefer_ssh = (os.environ.get('PREFER_SSH') or 'true').lower() in ('true', '1', 'yes')
+          password = st['password']
 
           if key_ok and prefer_ssh:
               mode = 'ssh'
-              if not port or port in ('21', '990', '989'):
-                  port = clean(os.environ.get('SSH_PORT_S') or '22') or '22'
-                  if port in ('21', '990', '989'):
-                      port = '22'
-          elif key_ok:
-              mode = 'ssh'
-              port = port if port and port not in ('21', '990', '989') else '22'
-          elif password and not key:
+              port = str(port)
+          elif password:
               mode = 'ftp'
-              port = port if port in ('21', '990', '989') else '21'
-              print('::warning::No SSH key at all — FTP fallback (may timeout from GHA)')
+              port = clean(os.environ.get('FTP_PORT_S') or '21') or '21'
+              print('::warning::SSH key not usable — FTP fallback')
           else:
-              print('::error::Need valid SSH_PRIVATE_KEY or FTP password in CREDENCIAIS_*')
+              print('::error::Need valid SSH key+passphrase or FTP password')
               raise SystemExit(1)
 
           with open(os.environ['GITHUB_ENV'], 'a') as f:
-              f.write(f'HG_HOST={host}\nHG_PORT={port}\nHG_USER={user}\nHG_MODE={mode}\n')
+              f.write(f'HG_HOST={host}\nHG_PORT={port}\nHG_USER={st["user"]}\nHG_MODE={mode}\n')
               f.write(f'HG_NEED_AGENT={"1" if (mode == "ssh" and key_needs_passphrase) else "0"}\n')
+              f.write(f'HG_HOST_LABEL={chosen[1]}\n')
               if password:
                   pf = pathlib.Path.home() / '.hg_pass'
                   pf.write_text(password); pf.chmod(0o600)
@@ -330,10 +347,12 @@ jobs:
               if mode == 'ssh' and key_needs_passphrase and st['passphrase']:
                   ppf = pathlib.Path.home() / '.ssh_passphrase'
                   ppf.write_text(st['passphrase']); ppf.chmod(0o600)
-          print(f'  resolved mode={mode} host={host} port={port} user={user} passphrase_source={st["passphrase_source"]}')
+          print(f'  resolved mode={mode} host_label={chosen[1]} port={port} user={st["user"]} passphrase_source={st["passphrase_source"]}')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as o:
               o.write(f'mode={mode}\n')
               o.write(f'passphrase_source={st["passphrase_source"]}\n')
+              o.write(f'host_label={chosen[1]}\n')
+              o.write(f'key_ok={"true" if key_ok else "false"}\n')
           PY
 
       - name: Setup SSH + probe
@@ -350,25 +369,31 @@ jobs:
             chmod 700 /tmp/askpass.sh
             DISPLAY= SSH_ASKPASS=/tmp/askpass.sh SSH_ASKPASS_REQUIRE=force \
               ssh-add "$HOME/.ssh_key_resolved"
-            echo "  ssh-agent loaded encrypted key (source=${{ steps.creds.outputs.passphrase_source }})"
+            echo "  KEY VALIDATED: ssh-agent loaded key (source=${{ steps.creds.outputs.passphrase_source }})"
           fi
           {
             echo "Host deploy-target"
             echo "  HostName $HG_HOST"
             echo "  Port $HG_PORT"
             echo "  User $HG_USER"
+            echo "  IdentityFile ~/.ssh/id_deploy"
             echo "  IdentitiesOnly yes"
+            echo "  AddressFamily inet"
             echo "  StrictHostKeyChecking accept-new"
             echo "  UserKnownHostsFile $HOME/.ssh/known_hosts"
-            echo "  ConnectTimeout 20"
+            echo "  ConnectTimeout 25"
+            echo "  ConnectionAttempts 3"
             echo "  BatchMode yes"
             echo "  LogLevel ERROR"
           } > ~/.ssh/config
           chmod 600 ~/.ssh/config
           : > ~/.ssh/known_hosts
-          ssh-keyscan -T 8 -p "$HG_PORT" -H "$HG_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
-          echo "SSH probe $HG_USER@$HG_HOST:$HG_PORT agent=${HG_NEED_AGENT:-0}"
-          ssh deploy-target 'echo remote-ok && hostname && whoami && ls -la public_html 2>/dev/null | head -5 || true'
+          ssh-keyscan -4 -T 10 -p "$HG_PORT" "$HG_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          echo "SSH probe $HG_USER@$HG_HOST:$HG_PORT label=${HG_HOST_LABEL:-?} agent=${HG_NEED_AGENT:-0}"
+          # Connectivity diagnostics
+          getent ahostsv4 "$HG_HOST" || true
+          timeout 5 bash -c "echo >/dev/tcp/$HG_HOST/$HG_PORT" && echo "tcp/$HG_PORT open" || echo "tcp/$HG_PORT closed-or-filtered"
+          ssh -4 deploy-target 'echo remote-ok && hostname && whoami && ls -la public_html 2>/dev/null | head -5 || true'
 
       - name: Upload + restart (SSH)
         if: steps.creds.outputs.mode == 'ssh'
@@ -385,16 +410,16 @@ jobs:
               ssh-add "$HOME/.ssh_key_resolved"
           fi
           if [ "${HG_NEED_AGENT:-0}" = "1" ]; then
-            gzip -c aistore-standalone.tar.gz | ssh deploy-target \
+            gzip -c aistore-standalone.tar.gz | ssh -4 deploy-target \
               'gunzip > ~/public_html/aistore-codebase.tar.gz'
           else
-            scp -o ConnectTimeout=30 aistore-standalone.tar.gz deploy-target:~/public_html/aistore-codebase.tar.gz
+            scp -4 -o ConnectTimeout=30 aistore-standalone.tar.gz deploy-target:~/public_html/aistore-codebase.tar.gz
           fi
           if [ -n "${SESSION_SECRET:-}" ] && [ ${#SESSION_SECRET} -ge 16 ]; then
-            ssh deploy-target "export SESSION_SECRET=$(printf %q "$SESSION_SECRET"); bash ~/aistore-api/deploy-manual.sh || bash ~/public_html/deploy-manual.sh"
+            ssh -4 deploy-target "export SESSION_SECRET=$(printf %q "$SESSION_SECRET"); bash ~/aistore-api/deploy-manual.sh || bash ~/public_html/deploy-manual.sh"
           else
             echo "::warning::SESSION_SECRET missing on GHA — remote deploy-manual may still extract"
-            ssh deploy-target "bash ~/aistore-api/deploy-manual.sh || bash ~/public_html/deploy-manual.sh"
+            ssh -4 deploy-target "bash ~/aistore-api/deploy-manual.sh || bash ~/public_html/deploy-manual.sh"
           fi
 
       - name: Install lftp
@@ -406,7 +431,7 @@ jobs:
         timeout-minutes: 8
         run: |
           set -e
-          echo "FTP → $HG_USER@$HG_HOST:$HG_PORT (fail-fast timeouts)"
+          echo "FTP → $HG_USER@$HG_HOST:$HG_PORT"
           mkdir -p /tmp/aistore-pkg
           for f in hostgator/aistore-api.cgi hostgator/api.cgi hostgator/.htaccess \
                    hostgator/deploy-manual.sh deploy/deploy-on-server.sh; do
@@ -459,7 +484,7 @@ jobs:
           if grep -q '__BAIT_BASEPATH_PATCHED__' /tmp/home.html; then
             echo "basepath_polyfill=present"
           else
-            echo "::warning::HTML without polyfill — may need hard refresh or extract incomplete"
+            echo "::warning::HTML without polyfill"
           fi
           echo "api_ok=true" >> $GITHUB_OUTPUT
 
@@ -468,6 +493,7 @@ jobs:
         run: |
           echo "### Deploy AI Store" >> $GITHUB_STEP_SUMMARY
           echo "- mode: \`${{ steps.creds.outputs.mode }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- key_ok: \`${{ steps.creds.outputs.key_ok }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- passphrase_source: \`${{ steps.creds.outputs.passphrase_source }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- host_label: \`${{ steps.creds.outputs.host_label }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- smoke: \`${{ steps.smoke.outputs.api_ok }}\`" >> $GITHUB_STEP_SUMMARY
